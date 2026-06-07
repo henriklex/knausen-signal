@@ -58,9 +58,18 @@
       "title": "LTE radio",
       "panels": [
         {
-          "title": "RSRP (reference signal received power), dBm — closer to 0 is stronger",
-          "width": 12,
-          "expr": ["knausen_modem_rsrp_dbm"]
+          "title": "Signal levels — RSRP (dBm), RSRQ (dB), RSSI (dBm). All negative; closer to 0 is stronger.",
+          "width": 8,
+          "expr": [
+            "knausen_modem_rsrp_dbm",
+            "knausen_modem_rsrq_db",
+            "knausen_modem_rssi_dbm"
+          ]
+        },
+        {
+          "title": "SINR (dB) — signal-to-interference-plus-noise; higher is cleaner",
+          "width": 4,
+          "expr": ["knausen_modem_snr_db"]
         }
       ]
     }
