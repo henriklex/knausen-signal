@@ -1,0 +1,68 @@
+{
+  "title": "Knausen — felt network quality",
+  "rows": [
+    {
+      "title": "Status (right now)",
+      "panels": [
+        {
+          "title": "Probe OK (1 = last cycle succeeded)",
+          "width": 4,
+          "expr": ["knausen_probe_ok"]
+        },
+        {
+          "title": "Modem connected (1 = LTE attach)",
+          "width": 4,
+          "expr": ["knausen_modem_connected"]
+        },
+        {
+          "title": "Collector heartbeat (1 = alive)",
+          "width": 4,
+          "expr": ["knausen_collector_heartbeat"]
+        }
+      ]
+    },
+    {
+      "title": "Latency",
+      "panels": [
+        {
+          "title": "Ping RTT — p50 (lower) and p95 (upper), ms",
+          "width": 8,
+          "expr": [
+            "knausen_probe_ping_rtt_ms_p50",
+            "knausen_probe_ping_rtt_ms_p95"
+          ]
+        },
+        {
+          "title": "Packet loss %",
+          "width": 4,
+          "expr": ["knausen_probe_ping_loss_pct"]
+        }
+      ]
+    },
+    {
+      "title": "Web responsiveness",
+      "panels": [
+        {
+          "title": "DNS lookup time, ms",
+          "width": 6,
+          "expr": ["knausen_probe_dns_lookup_ms"]
+        },
+        {
+          "title": "HTTPS HEAD round-trip, ms",
+          "width": 6,
+          "expr": ["knausen_probe_https_head_ms"]
+        }
+      ]
+    },
+    {
+      "title": "LTE radio",
+      "panels": [
+        {
+          "title": "RSRP (reference signal received power), dBm — closer to 0 is stronger",
+          "width": 12,
+          "expr": ["knausen_modem_rsrp_dbm"]
+        }
+      ]
+    }
+  ]
+}
