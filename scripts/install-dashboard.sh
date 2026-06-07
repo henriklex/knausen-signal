@@ -56,9 +56,19 @@ for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   sleep 1
   if curl -fsS -o /dev/null --max-time 1 http://localhost:8428/health; then
     echo "OK: victoria-metrics is active and serving"
+    # Custom dashboards are exposed at /vmui/custom-dashboards as one JSON
+    # blob containing every loaded dashboard's title + rows — not via the
+    # bundled /vmui/dashboards/index.js list. Confirm our title is in there.
+    if curl -fsS --max-time 2 http://localhost:8428/vmui/custom-dashboards \
+        | grep -q '"Knausen'; then
+      echo "OK: Knausen dashboard is loaded"
+    else
+      echo "WARN: Knausen dashboard not in /vmui/custom-dashboards — check JSON syntax"
+    fi
     echo
-    echo "Done. Open the dashboard via the public tunnel:"
-    echo "  hamburger menu (top-left) → Dashboards → 'Knausen — felt network quality'"
+    echo "Open via the public tunnel and navigate to:"
+    echo "  hamburger menu (top-left) → Dashboards"
+    echo "Reload the page once if you already had vmui open before this install."
     exit 0
   fi
 done
