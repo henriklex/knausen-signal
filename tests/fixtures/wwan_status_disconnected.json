@@ -1,0 +1,37 @@
+{
+  "get_wwan_network_internet_status": {
+    "errno": 0,
+    "errmsg": "",
+    "state": 0,
+    "connection_time": "00:00:00:00",
+    "ip": "0.0.0.0",
+    "subnet": "",
+    "gw": "",
+    "dns": "",
+    "dns2": "",
+    "ipv6_state": 0,
+    "ipv6_connection_time": "00:00:00:00",
+    "ipv6_ip": "",
+    "ipv6_gw": "",
+    "ipv6_dns": "",
+    "ipv6_dns2": "",
+    "lte": {
+      "operator": "",
+      "mcc": 0,
+      "mnc": 0,
+      "type": "",
+      "band": "",
+      "chnel": 0,
+      "band_1": "",
+      "chnel_1": 0,
+      "tac": 0,
+      "cid": 0,
+      "pci": 0,
+      "rsrp": 0,
+      "rsrq": 0,
+      "snr": 0,
+      "cqi": 0,
+      "rssi": 0
+    }
+  }
+}

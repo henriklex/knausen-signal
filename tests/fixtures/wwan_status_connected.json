@@ -1,0 +1,37 @@
+{
+  "get_wwan_network_internet_status": {
+    "errno": 0,
+    "errmsg": "",
+    "state": 3,
+    "connection_time": "00:10:09:19",
+    "ip": "192.0.2.16",
+    "subnet": "255.255.255.224",
+    "gw": "192.0.2.17",
+    "dns": "192.0.2.4",
+    "dns2": "192.0.2.70",
+    "ipv6_state": 3,
+    "ipv6_connection_time": "00:10:09:19",
+    "ipv6_ip": "2001:db8::1/64",
+    "ipv6_gw": "2001:db8::2/64",
+    "ipv6_dns": "2001:db8::4",
+    "ipv6_dns2": "2001:db8::70",
+    "lte": {
+      "operator": "ice+",
+      "mcc": 242,
+      "mnc": 14,
+      "type": "LTE+",
+      "band": "E_UTRA_20",
+      "chnel": 6200,
+      "band_1": "E_UTRA_3",
+      "chnel_1": 1850,
+      "tac": 20001,
+      "cid": 15129611,
+      "pci": 250,
+      "rsrp": -61,
+      "rsrq": -9,
+      "snr": 25,
+      "cqi": -1,
+      "rssi": -31
+    }
+  }
+}

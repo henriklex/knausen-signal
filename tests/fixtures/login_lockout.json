@@ -1,0 +1,7 @@
+{
+  "set_system_user_login": {
+    "errmsg": "300",
+    "errno": 6,
+    "first_login": 0
+  }
+}
