@@ -86,12 +86,16 @@ class Config:
             interval_sec=_int("KNAUSEN_PROBE_INTERVAL_SEC", 900),
             ping_targets=_csv("KNAUSEN_PING_TARGETS", ["1.1.1.1", "8.8.8.8", "9.9.9.9"]),
         )
+        # URL is always required when push is enabled, but user/password
+        # are optional — a local VictoriaMetrics or Prometheus accepts
+        # unauthenticated writes; only Grafana Cloud-style remotes need
+        # basic auth credentials.
         if require_push:
             push = PushConfig(
                 interval_sec=_int("KNAUSEN_PUSH_INTERVAL_SEC", 60),
                 prometheus_url=_required("KNAUSEN_PROMETHEUS_URL"),
-                prometheus_user=_required("KNAUSEN_PROMETHEUS_USER"),
-                prometheus_password=_required("KNAUSEN_PROMETHEUS_PASSWORD"),
+                prometheus_user=os.environ.get("KNAUSEN_PROMETHEUS_USER", ""),
+                prometheus_password=os.environ.get("KNAUSEN_PROMETHEUS_PASSWORD", ""),
             )
         else:
             push = PushConfig(

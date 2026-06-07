@@ -127,10 +127,11 @@ def push(
         return
     payload = encode_write_request(series)
     compressed = bytes(cramjam.snappy.compress_raw(payload))
+    auth = (username, password) if username or password else None
     resp = requests.post(
         url,
         data=compressed,
-        auth=(username, password),
+        auth=auth,
         headers={
             "Content-Type": "application/x-protobuf",
             "Content-Encoding": "snappy",
