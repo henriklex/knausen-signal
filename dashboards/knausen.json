@@ -7,17 +7,20 @@
         {
           "title": "Probe OK (1 = last cycle succeeded)",
           "width": 4,
-          "expr": ["knausen_probe_ok"]
+          "expr": ["knausen_probe_ok", "vector(0)", "vector(1)"],
+          "alias": ["probe_ok", "0", "1"]
         },
         {
           "title": "Modem connected (1 = LTE attach)",
           "width": 4,
-          "expr": ["knausen_modem_connected"]
+          "expr": ["knausen_modem_connected", "vector(0)", "vector(1)"],
+          "alias": ["connected", "0", "1"]
         },
         {
           "title": "Collector heartbeat (1 = alive)",
           "width": 4,
-          "expr": ["knausen_collector_heartbeat"]
+          "expr": ["knausen_collector_heartbeat", "vector(0)", "vector(1)"],
+          "alias": ["heartbeat", "0", "1"]
         }
       ]
     },
@@ -35,7 +38,8 @@
         {
           "title": "Packet loss %",
           "width": 4,
-          "expr": ["knausen_probe_ping_loss_pct"]
+          "expr": ["knausen_probe_ping_loss_pct", "vector(0)", "vector(100)"],
+          "alias": ["loss_pct", "0", "100"]
         }
       ]
     },
