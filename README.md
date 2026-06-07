@@ -24,6 +24,27 @@ export KNAUSEN_MODEM_PASSWORD='...'
 python -m knausen_signal.modem
 ```
 
-## Design
+## Deploy to the Pi
 
-See `~/.claude/plans/the-router-you-just-glistening-puffin.md` for the approved plan with the verified router-API details.
+```bash
+ssh pi@cabin
+curl -L https://raw.githubusercontent.com/henriklex/knausen-signal/main/scripts/bootstrap.sh | sudo bash
+sudo editor /etc/knausen-signal/env   # fill router password + Grafana Cloud creds
+sudo systemctl start knausen-signal
+journalctl -u knausen-signal -f
+```
+
+Updates: `sudo bash /opt/knausen-signal/scripts/bootstrap.sh && sudo systemctl restart knausen-signal`.
+
+## Architecture
+
+```
+[Zyxel LTE7460]  --LAN-->  [RPi]                  [Internet]  -->  [Grafana Cloud Free]
+                              |                                             ^
+                              ├─ modem.poll   (every KNAUSEN_MODEM_INTERVAL_SEC)
+                              ├─ probe.run    (every KNAUSEN_PROBE_INTERVAL_SEC)
+                              ├─ SQLite buffer (long-term archive, never auto-pruned)
+                              └─ push worker  (drain unpushed rows ─────────►
+```
+
+Grafana Cloud Free retains metrics for ~14 days. The local SQLite buffer is also the long-term archive, so post-mortems older than 2 weeks are still possible by reading the file off the Pi.

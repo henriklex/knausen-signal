@@ -50,7 +50,12 @@ class StoredSample:
 def open_db(db_path: str | Path) -> sqlite3.Connection:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), isolation_level=None, timeout=30)
+    # check_same_thread=False because the asyncio supervisor calls insert/select
+    # from the default thread pool. SQLite is internally thread-safe; our access
+    # pattern is at most a few writes per minute so contention is non-existent.
+    conn = sqlite3.connect(
+        str(path), isolation_level=None, timeout=30, check_same_thread=False
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")

@@ -8,11 +8,13 @@ dependencies = [
     "icmplib>=3.0",
     "dnspython>=2.6",
     "certifi>=2024.0",
+    "cramjam>=2.8",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
+    "pytest-asyncio>=0.23",
     "responses>=0.25",
 ]
 
@@ -28,3 +30,4 @@ packages = ["knausen_signal"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

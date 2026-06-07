@@ -1,0 +1,39 @@
+[Unit]
+Description=Knausen Signal collector
+Documentation=https://github.com/henriklex/knausen-signal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=knausen
+Group=knausen
+WorkingDirectory=/opt/knausen-signal
+EnvironmentFile=/etc/knausen-signal/env
+ExecStart=/opt/knausen-signal/.venv/bin/python -m knausen_signal.main
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Unprivileged ICMP requires the `net.ipv4.ping_group_range` sysctl to
+# include the knausen user's GID — bootstrap.sh writes
+# /etc/sysctl.d/99-knausen.conf for this. If you'd rather grant the
+# capability per-process, uncomment the two lines below and drop the sysctl.
+# AmbientCapabilities=CAP_NET_RAW
+# CapabilityBoundingSet=CAP_NET_RAW
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/knausen-signal
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
