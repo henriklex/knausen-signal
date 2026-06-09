@@ -25,36 +25,50 @@
       ]
     },
     {
-      "title": "Latency",
+      "title": "Latency — ping RTT",
       "panels": [
         {
-          "title": "Ping RTT — p50 (lower) and p95 (upper), ms",
-          "width": 8,
+          "title": "Ping RTT — p50 (red) and p95 (blue), ms",
+          "width": 12,
           "expr": [
             "knausen_probe_ping_rtt_ms_p50",
             "knausen_probe_ping_rtt_ms_p95"
-          ]
-        },
-        {
-          "title": "Packet loss %",
-          "width": 4,
-          "expr": ["knausen_probe_ping_loss_pct", "vector(0)", "vector(100)"],
-          "alias": ["loss_pct", "0", "100"]
+          ],
+          "showLegend": false
         }
       ]
     },
     {
-      "title": "Web responsiveness",
+      "title": "Latency — packet loss",
+      "panels": [
+        {
+          "title": "Packet loss %  (Y-axis pinned 0..100)",
+          "width": 12,
+          "expr": ["knausen_probe_ping_loss_pct", "vector(0)", "vector(100)"],
+          "alias": ["loss_pct", "0", "100"],
+          "showLegend": false
+        }
+      ]
+    },
+    {
+      "title": "Web responsiveness — DNS",
       "panels": [
         {
           "title": "DNS lookup time, ms",
-          "width": 6,
-          "expr": ["knausen_probe_dns_lookup_ms"]
-        },
+          "width": 12,
+          "expr": ["knausen_probe_dns_lookup_ms"],
+          "showLegend": false
+        }
+      ]
+    },
+    {
+      "title": "Web responsiveness — HTTPS HEAD",
+      "panels": [
         {
           "title": "HTTPS HEAD round-trip, ms",
-          "width": 6,
-          "expr": ["knausen_probe_https_head_ms"]
+          "width": 12,
+          "expr": ["knausen_probe_https_head_ms"],
+          "showLegend": false
         }
       ]
     },
