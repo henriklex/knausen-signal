@@ -62,13 +62,14 @@
       "title": "LTE radio — signal levels",
       "panels": [
         {
-          "title": "RSRP (dBm), RSRQ (dB), RSSI (dBm). All negative; closer to 0 is stronger.",
+          "title": "RSRP (red, dBm), RSRQ (blue, dB), RSSI (green, dBm). All negative; closer to 0 is stronger.",
           "width": 12,
           "expr": [
             "knausen_modem_rsrp_dbm",
             "knausen_modem_rsrq_db",
             "knausen_modem_rssi_dbm"
-          ]
+          ],
+          "showLegend": false
         }
       ]
     },
@@ -76,9 +77,10 @@
       "title": "LTE radio — SINR",
       "panels": [
         {
-          "title": "SINR (dB) — signal-to-interference-plus-noise; higher is cleaner. Sits below signal levels with the same x-axis for visual correlation.",
+          "title": "SINR (dB) — signal-to-interference-plus-noise; higher is cleaner. Same x-axis as the panel above for visual correlation.",
           "width": 12,
-          "expr": ["knausen_modem_snr_db"]
+          "expr": ["knausen_modem_snr_db"],
+          "showLegend": false
         }
       ]
     }
