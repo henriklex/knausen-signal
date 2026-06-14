@@ -27,8 +27,14 @@ import sqlite3
 import time
 
 from .config import Config
-from .db import insert_modem_sample, insert_probe_sample, open_db
+from .db import (
+    insert_modem_sample,
+    insert_mtr_snapshot,
+    insert_probe_sample,
+    open_db,
+)
 from .modem import ZyxelLockoutError, ZyxelLTE7460Client
+from .mtr import run_mtr
 from .probe import run_probe
 from .push import push_unpushed
 from .remote_write import Label, Sample, TimeSeries, push as remote_push
@@ -59,10 +65,16 @@ async def modem_loop(cfg: Config, conn: sqlite3.Connection) -> None:
 
 
 async def probe_loop(cfg: Config, conn: sqlite3.Connection) -> None:
+    # In-memory cooldown — survives only for the process lifetime. On
+    # restart the next trigger fires immediately if the link is still
+    # bad, which is what we want.
+    last_mtr_ts = 0.0
     while True:
         try:
             sample = await asyncio.to_thread(
-                run_probe, ping_targets=tuple(cfg.probe.ping_targets)
+                run_probe,
+                ping_targets=tuple(cfg.probe.ping_targets),
+                checkpoints=tuple(cfg.probe.checkpoints),
             )
             await asyncio.to_thread(
                 insert_probe_sample, conn, time.time(), sample.as_dict()
@@ -71,6 +83,26 @@ async def probe_loop(cfg: Config, conn: sqlite3.Connection) -> None:
                 "probe: ok=%s ping_p50=%s loss=%s",
                 sample.probe_ok, sample.ping_rtt_ms_p50, sample.ping_loss_pct,
             )
+
+            if (
+                cfg.mtr.enabled
+                and sample.ping_rtt_ms_p95 is not None
+                and sample.ping_rtt_ms_p95 >= cfg.mtr.trigger_p95_ms
+                and (time.time() - last_mtr_ts) >= cfg.mtr.cooldown_sec
+            ):
+                log.info(
+                    "mtr: triggered (p95=%.0fms >= %.0fms), probing %s",
+                    sample.ping_rtt_ms_p95, cfg.mtr.trigger_p95_ms, cfg.mtr.target,
+                )
+                snapshot = await asyncio.to_thread(
+                    run_mtr, cfg.mtr.target, cfg.mtr.probe_count
+                )
+                if snapshot is not None:
+                    await asyncio.to_thread(
+                        insert_mtr_snapshot, conn, time.time(), snapshot.as_dict()
+                    )
+                    last_mtr_ts = time.time()
+                    log.info("mtr: snapshot stored (%d hops)", len(snapshot.hops))
         except Exception:
             log.exception("probe: run failed")
         await asyncio.sleep(cfg.probe.interval_sec)

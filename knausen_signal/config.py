@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+from . import probe as _probe
+
 
 class ConfigError(ValueError):
     pass
@@ -38,6 +40,44 @@ def _csv(name: str, default: list[str]) -> list[str]:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
+def _kv_csv(
+    name: str, default: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """Parse `name=value,name2=value2` into [(name, value), ...]."""
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return list(default)
+    out: list[tuple[str, str]] = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            raise ConfigError(
+                f"Env var {name} entry {entry!r} is not a name=value pair"
+            )
+        k, v = entry.split("=", 1)
+        out.append((k.strip(), v.strip()))
+    return out
+
+
+def _bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError as e:
+        raise ConfigError(f"Env var {name}={raw!r} is not a float") from e
+
+
 @dataclass(frozen=True)
 class ModemConfig:
     host: str
@@ -50,6 +90,16 @@ class ModemConfig:
 class ProbeConfig:
     interval_sec: int
     ping_targets: list[str]
+    checkpoints: list[tuple[str, str]]
+
+
+@dataclass(frozen=True)
+class MtrConfig:
+    enabled: bool
+    target: str
+    trigger_p95_ms: float
+    cooldown_sec: int
+    probe_count: int
 
 
 @dataclass(frozen=True)
@@ -66,6 +116,7 @@ class Config:
     log_level: str
     modem: ModemConfig
     probe: ProbeConfig
+    mtr: MtrConfig
     push: PushConfig
 
     @classmethod
@@ -85,6 +136,17 @@ class Config:
         probe = ProbeConfig(
             interval_sec=_int("KNAUSEN_PROBE_INTERVAL_SEC", 900),
             ping_targets=_csv("KNAUSEN_PING_TARGETS", ["1.1.1.1", "8.8.8.8", "9.9.9.9"]),
+            checkpoints=_kv_csv(
+                "KNAUSEN_PROBE_CHECKPOINTS",
+                [(name, host) for name, host in _probe.DEFAULT_CHECKPOINTS],
+            ),
+        )
+        mtr = MtrConfig(
+            enabled=_bool("KNAUSEN_MTR_ENABLED", True),
+            target=os.environ.get("KNAUSEN_MTR_TARGET", "8.8.8.8"),
+            trigger_p95_ms=_float("KNAUSEN_MTR_TRIGGER_P95_MS", 500.0),
+            cooldown_sec=_int("KNAUSEN_MTR_COOLDOWN_SEC", 600),
+            probe_count=_int("KNAUSEN_MTR_PROBE_COUNT", 30),
         )
         # URL is always required when push is enabled, but user/password
         # are optional — a local VictoriaMetrics or Prometheus accepts
@@ -109,5 +171,6 @@ class Config:
             log_level=os.environ.get("KNAUSEN_LOG_LEVEL", "INFO"),
             modem=modem,
             probe=probe,
+            mtr=mtr,
             push=push,
         )

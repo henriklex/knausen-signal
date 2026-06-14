@@ -11,9 +11,15 @@ from unittest.mock import patch
 
 import pytest
 
-from knausen_signal.db import insert_modem_sample, insert_probe_sample, open_db
+from knausen_signal.db import (
+    insert_modem_sample,
+    insert_mtr_snapshot,
+    insert_probe_sample,
+    open_db,
+)
 from knausen_signal.push import (
     _modem_metrics,
+    _mtr_metrics,
     _probe_metrics,
     build_series,
     push_unpushed,
@@ -109,6 +115,106 @@ def test_probe_metrics_skips_none_subprobes():
     assert yielded["knausen_probe_ok"] == 1.0
 
 
+# ---------- checkpoint projection ----------
+
+def test_probe_metrics_emits_per_checkpoint_with_label():
+    payload = {
+        **PROBE_PAYLOAD,
+        "checkpoint_rtt_ms_p50": {"gateway": 1.5, "carrier_edge": 40.0},
+        "checkpoint_rtt_ms_p95": {"gateway": 2.0, "carrier_edge": 180.0},
+        "checkpoint_loss_pct":   {"gateway": 0.0, "carrier_edge": 0.0},
+    }
+    emitted = list(_probe_metrics(payload))
+    cp_p50 = [
+        (labs, val) for name, labs, val in emitted
+        if name == "knausen_probe_checkpoint_rtt_ms_p50"
+    ]
+    by_checkpoint = {
+        next(l.value for l in labs if l.name == "checkpoint"): val
+        for labs, val in cp_p50
+    }
+    assert by_checkpoint == {"gateway": 1.5, "carrier_edge": 40.0}
+
+
+def test_probe_metrics_skips_none_checkpoint_values():
+    payload = {
+        **PROBE_PAYLOAD,
+        "checkpoint_rtt_ms_p50": {"gateway": 1.5, "carrier_edge": None},
+        "checkpoint_rtt_ms_p95": {},
+        "checkpoint_loss_pct":   {"gateway": 0.0, "carrier_edge": None},
+    }
+    emitted_names = {
+        (name, next((l.value for l in labs if l.name == "checkpoint"), None))
+        for name, labs, _ in _probe_metrics(payload)
+        if name.startswith("knausen_probe_checkpoint_")
+    }
+    # carrier_edge None entries dropped; gateway present
+    assert ("knausen_probe_checkpoint_rtt_ms_p50", "gateway") in emitted_names
+    assert ("knausen_probe_checkpoint_rtt_ms_p50", "carrier_edge") not in emitted_names
+    assert ("knausen_probe_checkpoint_loss_pct", "gateway") in emitted_names
+
+
+def test_probe_metrics_empty_checkpoints_emits_no_checkpoint_series():
+    """Backward compat: payloads without checkpoint keys still work."""
+    emitted = list(_probe_metrics(PROBE_PAYLOAD))
+    assert not any(
+        name.startswith("knausen_probe_checkpoint_")
+        for name, _, _ in emitted
+    )
+
+
+# ---------- mtr projection ----------
+
+MTR_PAYLOAD = {
+    "target": "8.8.8.8",
+    "started_at": 1000.0,
+    "hops": [
+        {"hop_num": 1, "host": "192.168.1.1", "loss_pct": 0.0, "sent": 30,
+         "rtt_last": 1.5, "rtt_avg": 2.0, "rtt_best": 1.4, "rtt_worst": 3.0,
+         "rtt_stdev": 0.4},
+        {"hop_num": 4, "host": "10.4.208.17", "loss_pct": 0.0, "sent": 30,
+         "rtt_last": 88.8, "rtt_avg": 79.3, "rtt_best": 28.6, "rtt_worst": 197.2,
+         "rtt_stdev": 39.5},
+    ],
+}
+
+
+def test_mtr_metrics_yields_five_data_metrics_per_hop_plus_info():
+    emitted = list(_mtr_metrics(MTR_PAYLOAD))
+    names = [name for name, _, _ in emitted]
+    # 5 data + 1 info per hop, 2 hops = 12 series
+    assert len(emitted) == 12
+    assert names.count("knausen_mtr_hop_rtt_ms_worst") == 2
+    assert names.count("knausen_mtr_hop_info") == 2
+
+
+def test_mtr_metrics_data_series_labelled_target_and_hop_num_only():
+    """host stays out of data labels — keeps cardinality stable on route flip."""
+    for name, labs, _ in _mtr_metrics(MTR_PAYLOAD):
+        if name == "knausen_mtr_hop_info":
+            continue
+        label_names = {l.name for l in labs}
+        assert label_names == {"target", "hop_num"}, \
+            f"{name} unexpectedly carried labels {label_names}"
+
+
+def test_mtr_metrics_info_series_carries_host():
+    info = [
+        labs for name, labs, _ in _mtr_metrics(MTR_PAYLOAD)
+        if name == "knausen_mtr_hop_info"
+    ]
+    hosts_by_hop = {
+        next(l.value for l in labs if l.name == "hop_num"):
+        next(l.value for l in labs if l.name == "host")
+        for labs in info
+    }
+    assert hosts_by_hop == {"1": "192.168.1.1", "4": "10.4.208.17"}
+
+
+def test_mtr_metrics_empty_hops_yields_nothing():
+    assert list(_mtr_metrics({"target": "x", "started_at": 0, "hops": []})) == []
+
+
 # ---------- build_series ----------
 
 def test_build_series_groups_by_label_set_and_time_sorts():
@@ -168,6 +274,38 @@ def test_push_unpushed_returns_zero_when_nothing_pending(tmp_path):
     assert pushed == 0
 
 
+def test_push_unpushed_drains_mtr_snapshots_alongside_other_tables(tmp_path):
+    db_path = tmp_path / "test.sqlite"
+    conn = open_db(db_path)
+
+    insert_mtr_snapshot(conn, ts=1500.0, payload=MTR_PAYLOAD)
+
+    captured = {}
+
+    def fake_push(url, user, password, series, **_):
+        captured["series_count"] = len(series)
+        captured["names"] = {
+            next(l.value for l in s.labels if l.name == "__name__")
+            for s in series
+        }
+
+    with patch("knausen_signal.push.push", side_effect=fake_push):
+        pushed = push_unpushed(conn, _fake_config())
+
+    assert pushed == 1
+    # 5 data metrics across 2 hops would collapse onto 5 series (each
+    # series has 2 samples? — no, different hop_num labels = 2 series per
+    # metric). So 5 data * 2 hops + 1 info * 2 hops = 12 series total.
+    assert captured["series_count"] == 12
+    assert "knausen_mtr_hop_rtt_ms_worst" in captured["names"]
+    assert "knausen_mtr_hop_info" in captured["names"]
+
+    unp_mtr = conn.execute(
+        "SELECT count(*) FROM mtr_snapshot WHERE pushed_at IS NULL"
+    ).fetchone()[0]
+    assert unp_mtr == 0
+
+
 def test_push_unpushed_leaves_rows_unpushed_on_remote_error(tmp_path):
     db_path = tmp_path / "test.sqlite"
     conn = open_db(db_path)
@@ -204,6 +342,7 @@ def _fake_config():
     from knausen_signal.config import (
         Config,
         ModemConfig,
+        MtrConfig,
         ProbeConfig,
         PushConfig,
     )
@@ -211,7 +350,15 @@ def _fake_config():
         db_path=":memory:",
         log_level="INFO",
         modem=ModemConfig(host="h", username="u", password="p", interval_sec=900),
-        probe=ProbeConfig(interval_sec=900, ping_targets=["1.1.1.1"]),
+        probe=ProbeConfig(
+            interval_sec=900,
+            ping_targets=["1.1.1.1"],
+            checkpoints=[("gateway", "192.168.1.1")],
+        ),
+        mtr=MtrConfig(
+            enabled=True, target="8.8.8.8", trigger_p95_ms=500.0,
+            cooldown_sec=600, probe_count=30,
+        ),
         push=PushConfig(
             interval_sec=60,
             prometheus_url="https://example.com/api/prom/push",

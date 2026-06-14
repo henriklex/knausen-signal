@@ -54,7 +54,7 @@ def test_run_probe_all_ok_aggregates_pings_and_sets_ok_true():
             _fake_ping_host([20, 21, 22, 23, 24, 25, 26, 27, 28, 29], 0.0),
             _fake_ping_host([30, 31, 32, 33, 34, 35, 36, 37, 38, 39], 0.1),
         ]
-        sample = run_probe(ping_targets=("a", "b", "c"))
+        sample = run_probe(ping_targets=("a", "b", "c"), checkpoints=())
 
     assert isinstance(sample, ProbeSample)
     assert sample.probe_ok is True
@@ -76,7 +76,7 @@ def test_run_probe_dns_failure_does_not_kill_other_probes():
          patch.object(probe, "_time_tls", return_value=45.0), \
          patch.object(probe, "_time_https_head", return_value=80.0):
         mp.return_value = _fake_ping_host([10, 11, 12], 0.0)
-        sample = run_probe(ping_targets=("a",))
+        sample = run_probe(ping_targets=("a",), checkpoints=())
 
     assert sample.dns_lookup_ms is None
     assert sample.tcp_connect_ms == 20.0
@@ -96,7 +96,7 @@ def test_run_probe_all_ping_targets_down_reports_loss_100_but_probe_ok_stays_tru
             _fake_ping_host([], 1.0),
             _fake_ping_host([], 1.0),
         ]
-        sample = run_probe(ping_targets=("a", "b", "c"))
+        sample = run_probe(ping_targets=("a", "b", "c"), checkpoints=())
 
     assert sample.ping_loss_pct == pytest.approx(100.0)
     assert sample.ping_rtt_ms_p50 is None
@@ -116,7 +116,7 @@ def test_run_probe_partial_ping_loss_yields_percentiles_and_worst_case_loss():
             _fake_ping_host([], 1.0),
             _fake_ping_host([14, 15, 16], 0.0),
         ]
-        sample = run_probe(ping_targets=("a", "b", "c"))
+        sample = run_probe(ping_targets=("a", "b", "c"), checkpoints=())
 
     assert sample.ping_loss_pct == pytest.approx(100.0)  # worst-case across targets
     assert sample.ping_rtt_ms_p50 is not None
@@ -130,8 +130,91 @@ def test_run_probe_ping_subprobe_raises_sets_probe_ok_false():
          patch.object(probe, "_time_tcp", return_value=20.0), \
          patch.object(probe, "_time_tls", return_value=45.0), \
          patch.object(probe, "_time_https_head", return_value=80.0):
-        sample = run_probe(ping_targets=("a",))
+        sample = run_probe(ping_targets=("a",), checkpoints=())
 
     assert sample.ping_rtt_ms_p50 is None
     assert sample.ping_loss_pct is None
     assert sample.probe_ok is False
+
+
+# ---------- checkpoint pings ----------
+
+def test_ping_per_checkpoint_populates_dicts_keyed_by_name():
+    """Each checkpoint gets one icmp_ping call; results land under its name."""
+    with patch.object(probe, "icmp_ping") as mp:
+        mp.side_effect = [
+            _fake_ping_host([1.0, 2.0, 3.0], 0.0),    # gateway
+            _fake_ping_host([40.0, 45.0, 50.0], 0.0), # carrier_edge
+        ]
+        p50, p95, loss = probe._ping_per_checkpoint(
+            [("gateway", "192.168.1.1"), ("carrier_edge", "10.4.208.17")],
+            count=3,
+            privileged=False,
+        )
+
+    assert set(p50.keys()) == {"gateway", "carrier_edge"}
+    assert p50["gateway"] == pytest.approx(2.0)
+    assert p50["carrier_edge"] == pytest.approx(45.0)
+    assert loss["gateway"] == pytest.approx(0.0)
+    assert loss["carrier_edge"] == pytest.approx(0.0)
+
+
+def test_ping_per_checkpoint_one_failure_isolated_to_its_key():
+    """An unreachable checkpoint produces None for its name; others survive."""
+    with patch.object(probe, "icmp_ping") as mp:
+        mp.side_effect = [
+            _fake_ping_host([1.0, 2.0, 3.0], 0.0),  # gateway ok
+            OSError("no route to host"),            # carrier_edge dead
+        ]
+        p50, p95, loss = probe._ping_per_checkpoint(
+            [("gateway", "192.168.1.1"), ("carrier_edge", "10.4.208.17")],
+            count=3,
+            privileged=False,
+        )
+
+    assert p50["gateway"] == pytest.approx(2.0)
+    assert p50["carrier_edge"] is None
+    assert p95["carrier_edge"] is None
+    assert loss["carrier_edge"] is None
+
+
+def test_run_probe_populates_checkpoint_fields():
+    """run_probe with checkpoints fills the three dict fields on the sample."""
+    with patch.object(probe, "icmp_ping") as mp, \
+         patch.object(probe, "_time_dns", return_value=12.0), \
+         patch.object(probe, "_time_tcp", return_value=20.0), \
+         patch.object(probe, "_time_tls", return_value=45.0), \
+         patch.object(probe, "_time_https_head", return_value=80.0):
+        mp.side_effect = [
+            _fake_ping_host([10, 11, 12], 0.0),  # aggregate target "a"
+            _fake_ping_host([1, 2, 3], 0.0),     # checkpoint gateway
+            _fake_ping_host([40, 45, 50], 0.0),  # checkpoint carrier_edge
+        ]
+        sample = run_probe(
+            ping_targets=("a",),
+            checkpoints=(("gateway", "192.168.1.1"),
+                         ("carrier_edge", "10.4.208.17")),
+            checkpoint_count=3,
+        )
+
+    assert sample.checkpoint_rtt_ms_p50 == {
+        "gateway": pytest.approx(2.0),
+        "carrier_edge": pytest.approx(45.0),
+    }
+    assert sample.checkpoint_loss_pct["gateway"] == pytest.approx(0.0)
+    assert sample.probe_ok is True
+
+
+def test_run_probe_empty_checkpoints_leaves_dicts_empty():
+    """checkpoints=() means no checkpoint pings, empty dicts."""
+    with patch.object(probe, "icmp_ping") as mp, \
+         patch.object(probe, "_time_dns", return_value=12.0), \
+         patch.object(probe, "_time_tcp", return_value=20.0), \
+         patch.object(probe, "_time_tls", return_value=45.0), \
+         patch.object(probe, "_time_https_head", return_value=80.0):
+        mp.return_value = _fake_ping_host([10, 11, 12], 0.0)
+        sample = run_probe(ping_targets=("a",), checkpoints=())
+
+    assert sample.checkpoint_rtt_ms_p50 == {}
+    assert sample.checkpoint_rtt_ms_p95 == {}
+    assert sample.checkpoint_loss_pct == {}

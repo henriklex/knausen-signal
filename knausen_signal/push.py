@@ -91,6 +91,13 @@ _PROBE_NUMERIC: tuple[tuple[str, str], ...] = (
 )
 
 
+_CHECKPOINT_METRICS: tuple[tuple[str, str], ...] = (
+    ("probe_checkpoint_rtt_ms_p50", "checkpoint_rtt_ms_p50"),
+    ("probe_checkpoint_rtt_ms_p95", "checkpoint_rtt_ms_p95"),
+    ("probe_checkpoint_loss_pct",   "checkpoint_loss_pct"),
+)
+
+
 def _probe_metrics(payload: dict[str, Any]) -> Iterable[tuple[str, tuple[Label, ...], float]]:
     for suffix, key in _PROBE_NUMERIC:
         v = payload.get(key)
@@ -100,12 +107,61 @@ def _probe_metrics(payload: dict[str, Any]) -> Iterable[tuple[str, tuple[Label, 
     if ok is not None:
         yield f"{METRIC_PREFIX}_probe_ok", (), 1.0 if ok else 0.0
 
+    # Per-checkpoint segmented pings. One series per (metric, checkpoint)
+    # combination. Missing dict entries / None values produce no series —
+    # Prometheus handles the gap.
+    for suffix, key in _CHECKPOINT_METRICS:
+        per_checkpoint = payload.get(key) or {}
+        for cp_name, val in per_checkpoint.items():
+            if val is None:
+                continue
+            yield (
+                f"{METRIC_PREFIX}_{suffix}",
+                (Label("checkpoint", str(cp_name)),),
+                float(val),
+            )
+
+
+# ---------- mtr metric projection ----------
+
+# (metric suffix, hop payload key) for per-hop data metrics. Labels are
+# (target, hop_num) — kept stable across snapshots so series don't churn
+# when route topology shifts. The hop hostname goes on a separate `info`
+# series so it's queryable but doesn't multiply data cardinality.
+_MTR_NUMERIC: tuple[tuple[str, str], ...] = (
+    ("mtr_hop_rtt_ms_avg",   "rtt_avg"),
+    ("mtr_hop_rtt_ms_best",  "rtt_best"),
+    ("mtr_hop_rtt_ms_worst", "rtt_worst"),
+    ("mtr_hop_rtt_ms_stdev", "rtt_stdev"),
+    ("mtr_hop_loss_pct",     "loss_pct"),
+)
+
+
+def _mtr_metrics(payload: dict[str, Any]) -> Iterable[tuple[str, tuple[Label, ...], float]]:
+    target = str(payload.get("target", ""))
+    for hop in payload.get("hops") or ():
+        hop_num = str(hop.get("hop_num", ""))
+        base_labels = (Label("target", target), Label("hop_num", hop_num))
+        for suffix, key in _MTR_NUMERIC:
+            v = hop.get(key)
+            if v is None:
+                continue
+            yield f"{METRIC_PREFIX}_{suffix}", base_labels, float(v)
+        host = hop.get("host")
+        if host is not None:
+            yield (
+                f"{METRIC_PREFIX}_mtr_hop_info",
+                base_labels + (Label("host", str(host)),),
+                1.0,
+            )
+
 
 # ---------- series assembly ----------
 
 def build_series(
     modem_rows: list[StoredSample],
     probe_rows: list[StoredSample],
+    mtr_rows: list[StoredSample] | None = None,
 ) -> list[TimeSeries]:
     """Group all yielded points by label set, sort samples by ts.
 
@@ -128,6 +184,11 @@ def build_series(
         for name, extra, value in _probe_metrics(row.payload):
             emit(name, extra, value, ts_ms)
 
+    for row in mtr_rows or ():
+        ts_ms = int(row.ts * 1000)
+        for name, extra, value in _mtr_metrics(row.payload):
+            emit(name, extra, value, ts_ms)
+
     return [
         TimeSeries(labels=labels, samples=tuple(sorted(s, key=lambda x: x.timestamp_ms)))
         for labels, s in bucket.items()
@@ -140,13 +201,14 @@ def push_unpushed(conn: sqlite3.Connection, cfg: Config) -> int:
     """One drain cycle. Returns the number of source rows pushed."""
     modem_rows = select_unpushed(conn, "modem_sample", limit=BATCH_SIZE)
     probe_rows = select_unpushed(conn, "probe_sample", limit=BATCH_SIZE)
-    if not modem_rows and not probe_rows:
+    mtr_rows   = select_unpushed(conn, "mtr_snapshot", limit=BATCH_SIZE)
+    if not modem_rows and not probe_rows and not mtr_rows:
         return 0
 
-    series = build_series(modem_rows, probe_rows)
+    series = build_series(modem_rows, probe_rows, mtr_rows)
     log.info(
-        "remote_write: pushing %d modem + %d probe rows -> %d series",
-        len(modem_rows), len(probe_rows), len(series),
+        "remote_write: pushing %d modem + %d probe + %d mtr rows -> %d series",
+        len(modem_rows), len(probe_rows), len(mtr_rows), len(series),
     )
 
     push(
@@ -159,4 +221,5 @@ def push_unpushed(conn: sqlite3.Connection, cfg: Config) -> int:
     now = time.time()
     mark_pushed(conn, "modem_sample", (r.id for r in modem_rows), now)
     mark_pushed(conn, "probe_sample", (r.id for r in probe_rows), now)
-    return len(modem_rows) + len(probe_rows)
+    mark_pushed(conn, "mtr_snapshot", (r.id for r in mtr_rows),   now)
+    return len(modem_rows) + len(probe_rows) + len(mtr_rows)

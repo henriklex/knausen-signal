@@ -39,6 +39,23 @@
       ]
     },
     {
+      "title": "Latency — per-segment RTT (where the delay enters the path)",
+      "panels": [
+        {
+          "title": "Checkpoint RTT p50 by segment — gateway → carrier_edge → peering → destination",
+          "width": 12,
+          "expr": ["knausen_probe_checkpoint_rtt_ms_p50"],
+          "showLegend": true
+        },
+        {
+          "title": "Checkpoint RTT p95 by segment (tail per hop)",
+          "width": 12,
+          "expr": ["knausen_probe_checkpoint_rtt_ms_p95"],
+          "showLegend": true
+        }
+      ]
+    },
+    {
       "title": "Latency — packet loss",
       "panels": [
         {
@@ -69,6 +86,23 @@
           "width": 12,
           "expr": ["knausen_probe_https_head_ms"],
           "showLegend": false
+        }
+      ]
+    },
+    {
+      "title": "Path snapshots (triggered mtr)",
+      "panels": [
+        {
+          "title": "Carrier-edge (hop 4) worst-case RTT — diagnostic line for queue buildup at the Lyse edge",
+          "width": 12,
+          "expr": ["knausen_mtr_hop_rtt_ms_worst{hop_num=\"4\"}"],
+          "showLegend": false
+        },
+        {
+          "title": "All hops — worst-case RTT (latest snapshot tells you which hop owns the tail)",
+          "width": 12,
+          "expr": ["knausen_mtr_hop_rtt_ms_worst"],
+          "showLegend": true
         }
       ]
     },

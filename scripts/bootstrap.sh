@@ -29,7 +29,14 @@ fi
 echo "==> apt packages"
 apt-get update -qq
 apt-get install -y --no-install-recommends \
-  python3 python3-venv python3-pip sqlite3 git ca-certificates
+  python3 python3-venv python3-pip sqlite3 git ca-certificates mtr-tiny
+
+echo "==> grant cap_net_raw to mtr (so the service user can run it without sudo)"
+if command -v mtr >/dev/null 2>&1; then
+  setcap cap_net_raw+ep "$(command -v mtr)"
+else
+  echo "    warning: mtr not on PATH after install; triggered snapshots will be skipped"
+fi
 
 echo "==> service user"
 if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then

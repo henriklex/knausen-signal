@@ -37,6 +37,16 @@ CREATE TABLE IF NOT EXISTS probe_sample (
 
 CREATE INDEX IF NOT EXISTS idx_probe_unpushed
     ON probe_sample (ts) WHERE pushed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS mtr_snapshot (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts           REAL    NOT NULL,
+    payload      TEXT    NOT NULL,
+    pushed_at    REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_mtr_unpushed
+    ON mtr_snapshot (ts) WHERE pushed_at IS NULL;
 """
 
 
@@ -82,6 +92,10 @@ def insert_modem_sample(conn: sqlite3.Connection, ts: float, payload: dict) -> i
 
 def insert_probe_sample(conn: sqlite3.Connection, ts: float, payload: dict) -> int:
     return _insert(conn, "probe_sample", ts, payload)
+
+
+def insert_mtr_snapshot(conn: sqlite3.Connection, ts: float, payload: dict) -> int:
+    return _insert(conn, "mtr_snapshot", ts, payload)
 
 
 def _insert(conn: sqlite3.Connection, table: str, ts: float, payload: dict) -> int:

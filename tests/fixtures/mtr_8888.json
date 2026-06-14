@@ -1,0 +1,19 @@
+{
+  "report": {
+    "mtr": {
+      "src": "tsveierland",
+      "dst": "8.8.8.8",
+      "tos": 0,
+      "tests": 30,
+      "psize": 64,
+      "bitpattern": 0
+    },
+    "hubs": [
+      {"count": 1, "host": "192.168.1.1",    "Loss%": 0.0,   "Snt": 30, "Last": 1.6, "Avg": 2.0,  "Best": 1.4,  "Wrst": 3.1,   "StDev": 0.5},
+      {"count": 2, "host": "???",            "Loss%": 100.0, "Snt": 30, "Last": 0.0, "Avg": 0.0,  "Best": 0.0,  "Wrst": 0.0,   "StDev": 0.0},
+      {"count": 3, "host": "???",            "Loss%": 100.0, "Snt": 30, "Last": 0.0, "Avg": 0.0,  "Best": 0.0,  "Wrst": 0.0,   "StDev": 0.0},
+      {"count": 4, "host": "10.4.208.17",    "Loss%": 0.0,   "Snt": 30, "Last": 88.8, "Avg": 79.3, "Best": 28.6, "Wrst": 197.2, "StDev": 39.5},
+      {"count": 5, "host": "dns.google",     "Loss%": 0.0,   "Snt": 30, "Last": 74.4, "Avg": 82.3, "Best": 36.1, "Wrst": 220.3, "StDev": 36.2}
+    ]
+  }
+}
