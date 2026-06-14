@@ -1,4 +1,4 @@
-"""Push worker — drain unpushed SQLite rows to Grafana Cloud via remote_write.
+"""Push worker — drain unpushed SQLite rows to VictoriaMetrics via remote_write.
 
 Each call to `push_unpushed(conn, cfg)` is one drain cycle:
     1. Select up to BATCH_SIZE rows from each of `modem_sample` and
@@ -11,7 +11,8 @@ Each call to `push_unpushed(conn, cfg)` is one drain cycle:
 This means: when the WAN is down (the thing we most want to see), samples
 accumulate locally and replay in order on reconnect. The local SQLite is
 also the long-term archive — it is never auto-pruned, so post-mortems
-beyond Grafana Cloud's 14-day retention still work by reading the file.
+remain possible by reading the file off the Pi regardless of what
+retention the remote VictoriaMetrics is configured with.
 """
 
 from __future__ import annotations

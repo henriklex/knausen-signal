@@ -95,6 +95,6 @@ echo
 echo "Bootstrap complete."
 echo
 echo "Next steps:"
-echo "  1. sudo editor ${ENV_DIR}/env       # fill in Grafana Cloud + router password"
+echo "  1. sudo editor ${ENV_DIR}/env       # fill in VM remote_write URL + router password"
 echo "  2. sudo systemctl start knausen-signal"
 echo "  3. journalctl -u knausen-signal -f"

@@ -1,11 +1,13 @@
 """SQLite buffer for modem and probe samples.
 
 Each sample carries a `pushed_at` column that the push worker sets once the
-row has been accepted by Grafana Cloud. Until then it sits here, so a WAN
-outage during sample-time does not lose the data covering the outage.
+row has been accepted by the remote VictoriaMetrics endpoint. Until then it
+sits here, so a WAN outage during sample-time does not lose the data
+covering the outage.
 
 The DB is the long-term archive too — rows are never auto-pruned, so the
-local history exceeds the cloud's 14-day retention.
+local history can outlive whatever retention the remote VM is configured
+with.
 """
 
 from __future__ import annotations

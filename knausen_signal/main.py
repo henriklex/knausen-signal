@@ -13,7 +13,7 @@ Backoff:
 - push failure: exponential 2^n * interval_sec, capped at 1h
 
 Heartbeat: every push cycle pushes a single `knausen_collector_heartbeat=1`
-sample so an absence of recent heartbeat in Grafana Cloud means the
+sample so an absence of recent heartbeat in VictoriaMetrics means the
 collector itself died — distinguishable from "the internet is broken but
 the collector is still running and queueing".
 """

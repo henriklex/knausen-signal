@@ -149,9 +149,9 @@ class Config:
             probe_count=_int("KNAUSEN_MTR_PROBE_COUNT", 30),
         )
         # URL is always required when push is enabled, but user/password
-        # are optional — a local VictoriaMetrics or Prometheus accepts
-        # unauthenticated writes; only Grafana Cloud-style remotes need
-        # basic auth credentials.
+        # are optional — the self-hosted VictoriaMetrics accepts
+        # unauthenticated writes; user/password only matter if the remote
+        # is fronted by basic auth.
         if require_push:
             push = PushConfig(
                 interval_sec=_int("KNAUSEN_PUSH_INTERVAL_SEC", 60),
