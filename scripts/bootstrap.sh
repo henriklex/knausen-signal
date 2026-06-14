@@ -46,12 +46,16 @@ SERVICE_GID="$(id -g "${SERVICE_USER}")"
 
 echo "==> repo at ${INSTALL_DIR}"
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
-  git -C "${INSTALL_DIR}" fetch --quiet origin
-  git -C "${INSTALL_DIR}" reset --hard origin/main
+  # Update as the service user. Running git as root against a repo owned
+  # by another user trips git's "dubious ownership" safety check
+  # (git >= 2.35), which is exactly the case here since first install
+  # chowned everything to the knausen user.
+  sudo -u "${SERVICE_USER}" git -C "${INSTALL_DIR}" fetch --quiet origin
+  sudo -u "${SERVICE_USER}" git -C "${INSTALL_DIR}" reset --hard origin/main
 else
   git clone --quiet "${REPO_URL}" "${INSTALL_DIR}"
+  chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}"
 fi
-chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}"
 
 echo "==> venv + install"
 sudo -u "${SERVICE_USER}" bash -c "
