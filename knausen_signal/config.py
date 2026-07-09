@@ -131,7 +131,7 @@ class Config:
             host=os.environ.get("KNAUSEN_MODEM_HOST", "192.168.1.1"),
             ssh_key_path=os.environ.get(
                 "KNAUSEN_MODEM_SSH_KEY",
-                "/home/knausen/.ssh/id_ed25519_router",
+                "/var/lib/knausen-signal/.ssh/id_ed25519_router",
             ),
             ssh_user=os.environ.get("KNAUSEN_MODEM_SSH_USER", "admin"),
             interval_sec=_int("KNAUSEN_MODEM_INTERVAL_SEC", 900),

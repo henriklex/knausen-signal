@@ -30,11 +30,15 @@ Requires that the router already trusts your pubkey (see router setup below).
 The collector uses SSH to invoke `JsonClient` on the router directly. Install its pubkey once:
 
 ```bash
-# On the Pi, as the knausen service user:
+# On the Pi, as the knausen service user. The key must live under
+# /var/lib/knausen-signal/ because the systemd unit sets ProtectHome=true —
+# /home is invisible to the service process even for its own user.
+sudo -u knausen mkdir -p /var/lib/knausen-signal/.ssh
+sudo -u knausen chmod 700 /var/lib/knausen-signal/.ssh
 sudo -u knausen ssh-keygen -t ed25519 -N '' \
-    -f /home/knausen/.ssh/id_ed25519_router \
+    -f /var/lib/knausen-signal/.ssh/id_ed25519_router \
     -C 'knausen@tsveierland -> LTE7460'
-PUB=$(sudo -u knausen cat /home/knausen/.ssh/id_ed25519_router.pub)
+PUB=$(sudo -u knausen cat /var/lib/knausen-signal/.ssh/id_ed25519_router.pub)
 
 # The router's telnet is publickey-less; use it once to seed the SSH key.
 # Log in as admin (same password used for the web UI), then:
