@@ -36,18 +36,20 @@ METRIC_PREFIX = "knausen"
 
 # (metric suffix, payload key) for the plain numeric gauges.
 _MODEM_NUMERIC: tuple[tuple[str, str], ...] = (
-    ("modem_rsrp_dbm",         "rsrp_dbm"),
-    ("modem_rsrq_db",          "rsrq_db"),
-    ("modem_snr_db",           "snr_db"),
-    ("modem_rssi_dbm",         "rssi_dbm"),
-    ("modem_cqi",              "cqi"),
-    ("modem_pci",              "pci"),
-    ("modem_cid",              "cid"),
-    ("modem_tac",              "tac"),
-    ("modem_mcc",              "mcc"),
-    ("modem_mnc",              "mnc"),
-    ("modem_earfcn_primary",   "earfcn_primary"),
-    ("modem_earfcn_secondary", "earfcn_secondary"),
+    ("modem_rsrp_dbm",           "rsrp_dbm"),
+    ("modem_rsrq_db",            "rsrq_db"),
+    ("modem_snr_db",             "snr_db"),
+    ("modem_rssi_dbm",           "rssi_dbm"),
+    ("modem_cqi",                "cqi"),
+    ("modem_pci",                "pci"),
+    ("modem_cid",                "cid"),
+    ("modem_tac",                "tac"),
+    ("modem_mcc",                "mcc"),
+    ("modem_mnc",                "mnc"),
+    ("modem_earfcn_primary",     "earfcn_primary"),
+    ("modem_earfcn_secondary",   "earfcn_secondary"),
+    ("modem_data_usage_tx_bytes", "data_usage_tx_bytes"),
+    ("modem_data_usage_rx_bytes", "data_usage_rx_bytes"),
 )
 
 
@@ -70,6 +72,18 @@ def _modem_metrics(payload: dict[str, Any]) -> Iterable[tuple[str, tuple[Label, 
     # Derived: 1 when carrier aggregation is active, 0 otherwise.
     ca = payload.get("band_secondary") is not None
     yield f"{METRIC_PREFIX}_modem_carrier_aggregation", (), 1.0 if ca else 0.0
+
+    # Derived: tx + rx for the current billing cycle, matching the "N GB"
+    # number the router's home page shows. Emitted only when both parts
+    # are present so we never fabricate a fake total from a partial poll.
+    tx = payload.get("data_usage_tx_bytes")
+    rx = payload.get("data_usage_rx_bytes")
+    if tx is not None and rx is not None:
+        yield (
+            f"{METRIC_PREFIX}_modem_data_usage_total_bytes",
+            (),
+            float(tx) + float(rx),
+        )
 
     # info series — low-cardinality string context as a constant=1 gauge.
     info_labels = tuple(

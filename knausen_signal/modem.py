@@ -80,6 +80,12 @@ class ModemSample:
     ipv4_address: str | None
     ipv4_connection_time: str | None
     ipv6_address: str | None
+    # Monthly data usage for the current billing cycle, in bytes. Two
+    # RPCs behind the home page's "Data Usage: N GB" widget; None when
+    # the router refused those calls (they're a bonus signal — a failure
+    # here must not drop the primary modem sample).
+    data_usage_tx_bytes: int | None = None
+    data_usage_rx_bytes: int | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -129,7 +135,9 @@ class ZyxelLTE7460Client:
         )
 
     def poll(self) -> ModemSample:
-        """Fetch the WWAN status, re-logging-in once if the session died."""
+        """Fetch the WWAN status + monthly data usage, re-logging-in once
+        if the session died. Usage is best-effort — a failure there does
+        not drop the primary modem sample."""
         if not self._logged_in:
             self.login()
         try:
@@ -141,7 +149,35 @@ class ZyxelLTE7460Client:
             self._logged_in = False
             self.login()
             body = self._call("get_wwan_network_internet_status", {})
-        return self._parse_status(body)
+        tx_bytes, rx_bytes = self._fetch_data_usage()
+        return self._parse_status(body, tx_bytes=tx_bytes, rx_bytes=rx_bytes)
+
+    def _fetch_data_usage(self) -> tuple[int | None, int | None]:
+        """Two-step fetch mirroring the home-page flow:
+
+            1. get_wwan_pkt_threshold  -> {usage_cycle: {start_date, end_date}, ...}
+            2. get_wwan_total_network_stats  (with those dates) -> {tx, rx}
+
+        Returns (tx_bytes, rx_bytes). Any failure returns (None, None);
+        we don't want a flaky usage endpoint to drop the primary modem
+        sample the caller cares about.
+        """
+        try:
+            threshold = self._call("get_wwan_pkt_threshold", {})
+            cycle = threshold.get("usage_cycle") or {}
+            start_date = cycle.get("start_date")
+            end_date = cycle.get("end_date")
+            if not start_date or not end_date:
+                log.info("data-usage: threshold response missing usage_cycle")
+                return None, None
+            stats = self._call(
+                "get_wwan_total_network_stats",
+                {"start_date": start_date, "end_date": end_date},
+            )
+            return _int_or_none(stats.get("tx")), _int_or_none(stats.get("rx"))
+        except Exception:
+            log.exception("data-usage: fetch failed; leaving None")
+            return None, None
 
     def _call(self, action: str, args: dict[str, Any]) -> dict[str, Any]:
         body = self._raw_post({"action": action, "args": args})
@@ -167,7 +203,12 @@ class ZyxelLTE7460Client:
         return resp.json()
 
     @staticmethod
-    def _parse_status(body: dict[str, Any]) -> ModemSample:
+    def _parse_status(
+        body: dict[str, Any],
+        *,
+        tx_bytes: int | None = None,
+        rx_bytes: int | None = None,
+    ) -> ModemSample:
         lte = body.get("lte") or {}
         # state == 3 is "connected" in the firmware we tested; also fall back to
         # checking the v4 IP since we have not enumerated the full state enum.
@@ -195,6 +236,8 @@ class ZyxelLTE7460Client:
             ipv4_address=ipv4 if ipv4 not in ("0.0.0.0",) else None,
             ipv4_connection_time=body.get("connection_time") or None,
             ipv6_address=body.get("ipv6_ip") or None,
+            data_usage_tx_bytes=tx_bytes,
+            data_usage_rx_bytes=rx_bytes,
         )
 
 

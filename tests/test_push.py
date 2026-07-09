@@ -26,7 +26,8 @@ from knausen_signal.push import (
 )
 from knausen_signal.remote_write import Label
 
-# A representative modem payload with carrier aggregation active.
+# A representative modem payload with carrier aggregation active and
+# monthly data-usage populated.
 MODEM_PAYLOAD = {
     "connected": True,
     "rsrp_dbm": -61, "rsrq_db": -9, "snr_db": 25, "rssi_dbm": -31, "cqi": -1,
@@ -37,6 +38,8 @@ MODEM_PAYLOAD = {
     "ipv4_address": "100.121.166.16",
     "ipv4_connection_time": "00:10:09:19",
     "ipv6_address": "::1/64",
+    "data_usage_tx_bytes": 12345678901,
+    "data_usage_rx_bytes": 102400000000,
 }
 
 PROBE_PAYLOAD = {
@@ -61,8 +64,24 @@ def test_modem_metrics_yields_all_numeric_gauges_plus_derived():
         "knausen_modem_earfcn_primary", "knausen_modem_earfcn_secondary",
         "knausen_modem_connected", "knausen_modem_carrier_aggregation",
         "knausen_modem_info",
+        "knausen_modem_data_usage_tx_bytes", "knausen_modem_data_usage_rx_bytes",
+        "knausen_modem_data_usage_total_bytes",
     ):
         assert expected in names, f"missing {expected}"
+
+
+def test_modem_metrics_data_usage_total_is_sum_of_tx_and_rx():
+    assert _find(MODEM_PAYLOAD, "knausen_modem_data_usage_total_bytes") == \
+        pytest.approx(12345678901 + 102400000000)
+
+
+def test_modem_metrics_data_usage_omitted_when_either_side_is_none():
+    """A half-populated usage payload never fabricates a fake total."""
+    partial = {**MODEM_PAYLOAD, "data_usage_rx_bytes": None}
+    names = {name for name, _, _ in _modem_metrics(partial)}
+    assert "knausen_modem_data_usage_tx_bytes" in names
+    assert "knausen_modem_data_usage_rx_bytes" not in names
+    assert "knausen_modem_data_usage_total_bytes" not in names
 
 
 def test_modem_metrics_carrier_aggregation_flag_flips_with_band_secondary():

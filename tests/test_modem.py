@@ -143,14 +143,26 @@ def test_poll_logs_in_lazily_then_returns_sample(fixture):
         json=fixture("wwan_status_connected.json"),
         match=[_match_action("get_wwan_network_internet_status")],
     )
+    responses.add(
+        responses.POST, BASE,
+        json=fixture("wwan_pkt_threshold.json"),
+        match=[_match_action("get_wwan_pkt_threshold")],
+    )
+    responses.add(
+        responses.POST, BASE,
+        json=fixture("wwan_total_network_stats.json"),
+        match=[_match_action("get_wwan_total_network_stats")],
+    )
 
     client = make_client()
     sample = client.poll()
 
     assert sample.connected is True
     assert sample.rsrp_dbm == -61
-    # Two POSTs: one login, one status
-    assert len(responses.calls) == 2
+    assert sample.data_usage_tx_bytes == 12345678901
+    assert sample.data_usage_rx_bytes == 102400000000
+    # Four POSTs: login, status, pkt_threshold, total_network_stats
+    assert len(responses.calls) == 4
 
 
 @responses.activate
@@ -179,12 +191,23 @@ def test_poll_relogins_on_session_expired(fixture):
         json=fixture("wwan_status_connected.json"),
         match=[_match_action("get_wwan_network_internet_status")],
     )
+    # 5+6: data-usage two-step follows the primary status call
+    responses.add(
+        responses.POST, BASE,
+        json=fixture("wwan_pkt_threshold.json"),
+        match=[_match_action("get_wwan_pkt_threshold")],
+    )
+    responses.add(
+        responses.POST, BASE,
+        json=fixture("wwan_total_network_stats.json"),
+        match=[_match_action("get_wwan_total_network_stats")],
+    )
 
     client = make_client()
     sample = client.poll()
 
     assert sample.connected is True
-    assert len(responses.calls) == 4
+    assert len(responses.calls) == 6
 
 
 @responses.activate
@@ -216,6 +239,92 @@ def test_poll_does_not_recover_from_persistent_session_failure(fixture):
     with pytest.raises(ZyxelResponseError):
         client.poll()
 
+
+# ---------- data usage ----------
+
+def test_parse_status_defaults_data_usage_to_none():
+    sample = ZyxelLTE7460Client._parse_status({"state": 3, "ip": "1.2.3.4"})
+    assert sample.data_usage_tx_bytes is None
+    assert sample.data_usage_rx_bytes is None
+
+
+def test_parse_status_carries_data_usage_when_passed():
+    sample = ZyxelLTE7460Client._parse_status(
+        {"state": 3, "ip": "1.2.3.4"}, tx_bytes=100, rx_bytes=200,
+    )
+    assert sample.data_usage_tx_bytes == 100
+    assert sample.data_usage_rx_bytes == 200
+
+
+@responses.activate
+def test_poll_tolerates_data_usage_failure_and_still_returns_sample(fixture):
+    """Usage endpoints failing must not drop the primary modem sample."""
+    responses.add(
+        responses.POST, BASE,
+        json=fixture("login_success.json"),
+        match=[_match_action("set_system_user_login")],
+    )
+    responses.add(
+        responses.POST, BASE,
+        json=fixture("wwan_status_connected.json"),
+        match=[_match_action("get_wwan_network_internet_status")],
+    )
+    # pkt_threshold call errors out — usage fetch bails, poll still returns.
+    responses.add(
+        responses.POST, BASE,
+        json={"get_wwan_pkt_threshold": {"errno": 1, "errmsg": "boom"}},
+        match=[_match_action("get_wwan_pkt_threshold")],
+    )
+
+    client = make_client()
+    sample = client.poll()
+    assert sample.connected is True
+    assert sample.rsrp_dbm == -61
+    assert sample.data_usage_tx_bytes is None
+    assert sample.data_usage_rx_bytes is None
+
+
+@responses.activate
+def test_poll_data_usage_forwards_threshold_dates_to_stats_call(fixture):
+    """The stats RPC needs start_date/end_date from the threshold response."""
+    responses.add(
+        responses.POST, BASE,
+        json=fixture("login_success.json"),
+        match=[_match_action("set_system_user_login")],
+    )
+    responses.add(
+        responses.POST, BASE,
+        json=fixture("wwan_status_connected.json"),
+        match=[_match_action("get_wwan_network_internet_status")],
+    )
+    responses.add(
+        responses.POST, BASE,
+        json=fixture("wwan_pkt_threshold.json"),
+        match=[_match_action("get_wwan_pkt_threshold")],
+    )
+    # Capture the args passed to the stats call to assert on them.
+    def stats_matcher(request):
+        import json as _json
+        body = _json.loads(request.body)
+        if body.get("action") != "get_wwan_total_network_stats":
+            return False, "wrong action"
+        args = body.get("args") or {}
+        ok = args.get("start_date") == "0701" and args.get("end_date") == "0731"
+        return ok, "" if ok else f"got args={args!r}"
+
+    responses.add(
+        responses.POST, BASE,
+        json=fixture("wwan_total_network_stats.json"),
+        match=[stats_matcher],
+    )
+
+    client = make_client()
+    sample = client.poll()
+    assert sample.data_usage_tx_bytes == 12345678901
+    assert sample.data_usage_rx_bytes == 102400000000
+
+
+# ---------- misc ----------
 
 @responses.activate
 def test_http_401_clears_session_and_raises_auth_error():

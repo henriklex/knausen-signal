@@ -1,0 +1,13 @@
+{
+  "get_wwan_pkt_threshold": {
+    "alarm": 80,
+    "errmsg": "",
+    "errno": 0,
+    "quota": 1048576,
+    "reset_date": 1,
+    "usage_cycle": {
+      "end_date": "0731",
+      "start_date": "0701"
+    }
+  }
+}
