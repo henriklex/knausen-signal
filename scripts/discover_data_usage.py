@@ -13,39 +13,57 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+from urllib.parse import urljoin
+
+import requests
+import urllib3
 
 # Allow running from the repo root without an editable install.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from knausen_signal.modem import ZyxelLTE7460Client  # noqa: E402
 
-CANDIDATE_ACTIONS = [
-    # Home-page widget names — the DOM ids are `home_internet_traffic_total`
-    # and `home_internet_quota`, so these are the most likely.
-    "get_home_internet_traffic",
-    "get_home_internet_quota",
-    "get_home_internet_content",
-    # Generic traffic / usage names that other Zyxel firmwares use.
-    "get_traffic_status",
-    "get_traffic_statistic",
-    "get_traffic_statistics",
-    "get_wwan_traffic_statistic",
-    "get_wwan_data_usage",
-    "get_wwan_traffic",
-    "get_data_usage",
-    "get_data_usage_status",
-    "get_wan_traffic_status",
-    "get_wan_traffic_statistic",
-    "get_lte_traffic_status",
-    "get_lte_data_usage",
-    "get_monthly_traffic",
-    "get_bandwidth_management_status",
-    "get_bandwidth_control_status",
-    # Companion "settings" endpoints — sometimes contain the monthly cap.
-    "get_traffic_management_setting",
-    "get_data_usage_setting",
-]
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# We look for anything the router's own JS calls that mentions traffic /
+# usage / quota / bandwidth. Grep across all bundled JS.
+ACTION_NAME_RE = re.compile(r'action\s*[:=]\s*["\']([a-z_][a-z0-9_]+)["\']', re.I)
+INTERESTING_RE = re.compile(r'traffic|usage|quota|volume|bandwidth|byte', re.I)
+JS_HREF_RE = re.compile(r'src\s*=\s*["\']([^"\']+\.js[^"\']*)["\']', re.I)
+# Some Zyxel UIs use inline HTML entry points that themselves load more JS.
+HTML_ENTRYPOINTS = ["/", "/home.html", "/index.html", "/main.html"]
+
+
+def _harvest_js_actions(session: requests.Session, base: str) -> set[str]:
+    """Walk router HTML entrypoints, fetch every .js they reference, grep
+    for `action:"..."` / `action="..."` strings, and return the ones that
+    look traffic/usage/quota related."""
+    js_urls: set[str] = set()
+    for entry in HTML_ENTRYPOINTS:
+        try:
+            r = session.get(urljoin(base, entry), timeout=5)
+        except Exception:
+            continue
+        if r.status_code != 200:
+            continue
+        for m in JS_HREF_RE.finditer(r.text):
+            js_urls.add(urljoin(base, m.group(1)))
+
+    interesting: set[str] = set()
+    for js in sorted(js_urls):
+        try:
+            r = session.get(js, timeout=5)
+        except Exception:
+            continue
+        if r.status_code != 200:
+            continue
+        for m in ACTION_NAME_RE.finditer(r.text):
+            name = m.group(1)
+            if INTERESTING_RE.search(name):
+                interesting.add(name)
+    return interesting
 
 
 def main() -> int:
@@ -60,7 +78,16 @@ def main() -> int:
     client.login()
     print(f"# logged in to {host}\n")
 
-    for action in CANDIDATE_ACTIONS:
+    # Step 1: scrape the router's own JS for candidate action names.
+    base = f"https://{host}/"
+    print("# harvesting action names from router JS bundle...")
+    harvested = _harvest_js_actions(client.session, base)
+    print(f"# harvested {len(harvested)} candidate action(s): "
+          f"{sorted(harvested)}\n")
+
+    # Step 2: try each one. Print full response on errno=0 so we can see
+    # the response shape.
+    for action in sorted(harvested):
         try:
             body = client._raw_post({"action": action, "args": {}})
         except Exception as e:
@@ -69,7 +96,6 @@ def main() -> int:
         result = body.get(action, body)
         errno = result.get("errno") if isinstance(result, dict) else None
         if errno == 0 or errno is None:
-            # Print the whole response so we can see the field names.
             print(f"[{action}] OK errno={errno}")
             print(json.dumps(body, indent=2, sort_keys=True))
             print()
