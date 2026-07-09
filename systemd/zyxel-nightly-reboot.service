@@ -1,0 +1,41 @@
+[Unit]
+Description=Reboot the cabin Zyxel LTE7460 (nightly hygiene)
+Documentation=https://github.com/henriklex/knausen-signal
+# Only meaningful once the collector's SSH key exists at the path below.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=knausen
+Group=knausen
+
+# The router's sshd is killed mid-reboot before the ssh channel closes,
+# so ssh returns non-zero every time — that is expected. Wrap with
+# `|| true` so systemd doesn't mark the invocation as failed. `-o BatchMode=yes`
+# guarantees the run is fully non-interactive (no passphrase prompts).
+ExecStart=/bin/bash -c '\
+    /usr/bin/ssh \
+        -i /var/lib/knausen-signal/.ssh/id_ed25519_router \
+        -o BatchMode=yes \
+        -o ConnectTimeout=10 \
+        -o StrictHostKeyChecking=accept-new \
+        -o UserKnownHostsFile=/var/lib/knausen-signal/.ssh/known_hosts \
+        admin@192.168.1.1 reboot \
+    || true'
+
+# Bounded runtime — a wedged sshd should never hold this open.
+TimeoutStartSec=30
+
+# Same hardening posture as the collector unit, with the same
+# ReadWritePaths so we can reach the ssh key + known_hosts.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/knausen-signal
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true

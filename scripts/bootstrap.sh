@@ -84,17 +84,32 @@ net.ipv4.ping_group_range = ${SERVICE_GID} ${SERVICE_GID}
 EOF
 sysctl -q --system
 
-echo "==> systemd unit"
+echo "==> systemd units"
 install -m 0644 \
   "${INSTALL_DIR}/systemd/knausen-signal.service" \
   /etc/systemd/system/knausen-signal.service
+install -m 0644 \
+  "${INSTALL_DIR}/systemd/zyxel-nightly-reboot.service" \
+  /etc/systemd/system/zyxel-nightly-reboot.service
+install -m 0644 \
+  "${INSTALL_DIR}/systemd/zyxel-nightly-reboot.timer" \
+  /etc/systemd/system/zyxel-nightly-reboot.timer
 systemctl daemon-reload
 systemctl enable knausen-signal.service >/dev/null
+# Enable the timer (not the service — the timer is what schedules it).
+# Safe to enable even before the SSH key exists; the service will just
+# fail loudly on first fire until the key is installed.
+systemctl enable --now zyxel-nightly-reboot.timer >/dev/null
 
 echo
 echo "Bootstrap complete."
 echo
 echo "Next steps:"
-echo "  1. sudo editor ${ENV_DIR}/env       # fill in VM remote_write URL + router password"
-echo "  2. sudo systemctl start knausen-signal"
-echo "  3. journalctl -u knausen-signal -f"
+echo "  1. sudo editor ${ENV_DIR}/env       # fill in VM remote_write URL"
+echo "  2. install the router SSH key (one-time) — see README 'One-time router setup'"
+echo "  3. sudo systemctl start knausen-signal"
+echo "  4. journalctl -u knausen-signal -f"
+echo
+echo "Nightly router reboot: enabled via zyxel-nightly-reboot.timer (04:00 Europe/Oslo)."
+echo "  systemctl list-timers zyxel-nightly-reboot     # see next fire time"
+echo "  systemctl start zyxel-nightly-reboot.service   # test manually (WARNING: reboots the router now)"

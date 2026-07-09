@@ -62,6 +62,20 @@ journalctl -u knausen-signal -f
 
 Updates: `sudo bash /opt/knausen-signal/scripts/bootstrap.sh && sudo systemctl restart knausen-signal`.
 
+## Nightly router reboot
+
+Preventative reboot of the Zyxel LTE7460 at **04:00 Europe/Oslo**, enabled by `bootstrap.sh`. Uses the same SSH pubkey as the collector to run `reboot` on the router; the router's sshd dies mid-reboot so the SSH client returns non-zero, which the service explicitly ignores (`|| true`).
+
+```bash
+systemctl list-timers zyxel-nightly-reboot     # next fire time
+journalctl -u zyxel-nightly-reboot -n 20       # history
+systemctl start zyxel-nightly-reboot.service   # reboot the router NOW (test)
+```
+
+Impact per fire: ~1 min of cabin internet gone (metric shows as a small NaN gap) and one "modem: poll failed" line in the collector's log while the router restarts. Data-usage counters on the router persist across the reboot.
+
+To disable: `sudo systemctl disable --now zyxel-nightly-reboot.timer`.
+
 ## Architecture
 
 ```
