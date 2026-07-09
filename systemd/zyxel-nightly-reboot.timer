@@ -6,7 +6,7 @@ Documentation=https://github.com/henriklex/knausen-signal
 # Explicit TZ so this fires at 04:00 Oslo regardless of the Pi's
 # system timezone. `Persistent=true` catches up if the Pi was off at
 # the scheduled time (it'll fire on next boot instead of skipping).
-OnCalendar=Europe/Oslo *-*-* 04:00:00
+OnCalendar=*-*-* 04:00:00 Europe/Oslo
 Persistent=true
 
 [Install]
