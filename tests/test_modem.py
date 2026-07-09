@@ -159,8 +159,9 @@ def test_poll_logs_in_lazily_then_returns_sample(fixture):
 
     assert sample.connected is True
     assert sample.rsrp_dbm == -61
-    assert sample.data_usage_tx_bytes == 12345678901
-    assert sample.data_usage_rx_bytes == 102400000000
+    # Router returns KiB; parser multiplies by 1024 to store true bytes.
+    assert sample.data_usage_tx_bytes == 10485760 * 1024
+    assert sample.data_usage_rx_bytes == 100000000 * 1024
     # Four POSTs: login, status, pkt_threshold, total_network_stats
     assert len(responses.calls) == 4
 
@@ -320,8 +321,8 @@ def test_poll_data_usage_forwards_threshold_dates_to_stats_call(fixture):
 
     client = make_client()
     sample = client.poll()
-    assert sample.data_usage_tx_bytes == 12345678901
-    assert sample.data_usage_rx_bytes == 102400000000
+    assert sample.data_usage_tx_bytes == 10485760 * 1024
+    assert sample.data_usage_rx_bytes == 100000000 * 1024
 
 
 # ---------- misc ----------

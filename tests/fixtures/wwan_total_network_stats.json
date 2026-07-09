@@ -2,7 +2,7 @@
   "get_wwan_total_network_stats": {
     "errmsg": "",
     "errno": 0,
-    "tx": 12345678901,
-    "rx": 102400000000
+    "tx": 10485760,
+    "rx": 100000000
   }
 }

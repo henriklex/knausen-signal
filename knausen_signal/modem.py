@@ -174,7 +174,16 @@ class ZyxelLTE7460Client:
                 "get_wwan_total_network_stats",
                 {"start_date": start_date, "end_date": end_date},
             )
-            return _int_or_none(stats.get("tx")), _int_or_none(stats.get("rx"))
+            # The router returns tx/rx in KiB, not bytes: divided by 1024 our
+            # values matched the home-page "GB" figure exactly (116.97 GB shown
+            # vs 0.114 GB computed from raw / 1024^3). Multiply by 1024 here so
+            # the `_bytes` metric name stays truthful.
+            tx = _int_or_none(stats.get("tx"))
+            rx = _int_or_none(stats.get("rx"))
+            return (
+                tx * 1024 if tx is not None else None,
+                rx * 1024 if rx is not None else None,
+            )
         except Exception:
             log.exception("data-usage: fetch failed; leaving None")
             return None, None
