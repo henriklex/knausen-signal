@@ -33,8 +33,13 @@ ACTION_NAME_RE = re.compile(r'\b((?:get|set)_[a-z][a-z0-9_]{3,})\b')
 INTERESTING_RE = re.compile(r'traffic|usage|quota|volume|bandwidth|byte|internet_content', re.I)
 # The home page shows the number; DOM id was `home_internet_traffic_total`.
 # Whichever JS writes to that id also names the action. Print surrounding
-# context wherever we find it.
-KNOWN_DOM_IDS = ["home_internet_traffic_total", "home_internet_quota"]
+# context wherever we find it. `stats_info` and `wwan_pkt_quota` are the
+# specific JS variables the home code reads — where those are *assigned*
+# is what we actually need to see.
+KNOWN_DOM_IDS = [
+    "home_internet_traffic_total", "home_internet_quota",
+    "stats_info", "wwan_pkt_quota", "wwan_pkt_alarm", "wwan_pkt_control",
+]
 JS_HREF_RE = re.compile(r'src\s*=\s*["\']([^"\']+\.js[^"\']*)["\']', re.I)
 HREF_RE = re.compile(r'href\s*=\s*["\']([^"\']+\.html?[^"\']*)["\']', re.I)
 # Screenshot showed URL like /router/router_operating_mode.html — pages live
@@ -117,12 +122,13 @@ def _harvest_js_actions(session: requests.Session, base: str) -> set[str]:
               f"{len(matches)} interesting")
         for n in matches:
             interesting.add(n)
-        # Print context around any known DOM id so we can see how the
-        # value is loaded even if the action name isn't in this file.
+        # Print context around any known DOM id / variable name so we
+        # can see how the value is loaded even if the action name isn't
+        # in this file.
         for dom_id in KNOWN_DOM_IDS:
-            for m in re.finditer(re.escape(dom_id), body):
-                start = max(0, m.start() - 200)
-                end = min(len(body), m.end() + 200)
+            for m in re.finditer(r'\b' + re.escape(dom_id) + r'\b', body):
+                start = max(0, m.start() - 250)
+                end = min(len(body), m.end() + 250)
                 print(f"    -- context in {js} around {dom_id!r} --")
                 print("    " + body[start:end].replace("\n", "\n    "))
                 print()
