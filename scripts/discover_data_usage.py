@@ -1,138 +1,32 @@
 #!/usr/bin/env python3
-"""Discover the Zyxel LTE7460 JSON action that returns data-usage.
+"""Confirm the Zyxel LTE7460 data-usage RPC responses.
 
-Run this once on the Pi (or any host on the cabin LAN):
+Prior discovery revealed the home page uses this flow:
 
-    KNAUSEN_MODEM_PASSWORD=... python3 scripts/discover_data_usage.py
+    1. get_wwan_pkt_threshold        -> {usage_cycle:{start_date,end_date},
+                                          quota, alarm}
+    2. get_wwan_total_network_stats  (args from step 1) -> {tx, rx}
+    3. get_data_limit_config         -> {data_limit}
 
-It logs in, tries a battery of plausible action names against
-/cgi-bin/gui.cgi, and prints anything that comes back with errno=0 and a
-non-empty result. Paste the output back and I'll wire up the real code.
+This script exercises all three and prints the raw responses so we can
+verify the exact field shapes (units, string vs int, key names) before
+committing parser code.
 """
 from __future__ import annotations
 
 import json
 import os
-import re
 import sys
-from urllib.parse import urljoin
 
-import requests
-import urllib3
-
-# Allow running from the repo root without an editable install.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from knausen_signal.modem import ZyxelLTE7460Client  # noqa: E402
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# All Zyxel RPC actions we've seen follow get_* / set_* — grep for any
-# such identifier so we don't depend on the JS's exact call shape.
-ACTION_NAME_RE = re.compile(r'\b((?:get|set)_[a-z][a-z0-9_]{3,})\b')
-INTERESTING_RE = re.compile(r'traffic|usage|quota|volume|bandwidth|byte|internet_content', re.I)
-# The home page shows the number; DOM id was `home_internet_traffic_total`.
-# Whichever JS writes to that id also names the action. Print surrounding
-# context wherever we find it. `stats_info` and `wwan_pkt_quota` are the
-# specific JS variables the home code reads — where those are *assigned*
-# is what we actually need to see.
-KNOWN_DOM_IDS = [
-    "home_internet_traffic_total", "home_internet_quota",
-    "stats_info", "wwan_pkt_quota", "wwan_pkt_alarm", "wwan_pkt_control",
-]
-JS_HREF_RE = re.compile(r'src\s*=\s*["\']([^"\']+\.js[^"\']*)["\']', re.I)
-HREF_RE = re.compile(r'href\s*=\s*["\']([^"\']+\.html?[^"\']*)["\']', re.I)
-# Screenshot showed URL like /router/router_operating_mode.html — pages live
-# under /router/, /internet/, etc. Start with what we know and let the crawl
-# expand it.
-HTML_ENTRYPOINTS = [
-    "/", "/home.html", "/index.html", "/main.html", "/login.html",
-    "/router/router_operating_mode.html",
-]
-# Directories to probe blindly if the entrypoints yield nothing.
-JS_DIR_GUESSES = ["/js/", "/scripts/", "/static/", "/static/js/",
-                  "/router/js/", "/router/", "/home/", "/home/js/"]
-
-
-def _fetch(session: requests.Session, url: str) -> tuple[int, str]:
-    try:
-        r = session.get(url, timeout=5, verify=False)
-        return r.status_code, r.text
-    except Exception as e:
-        return 0, f"# ERROR: {e}"
-
-
-def _harvest_js_actions(session: requests.Session, base: str) -> set[str]:
-    """Crawl router HTML entrypoints, fetch every .js they reference,
-    grep for `action:"..."` / `action="..."` strings, and return the ones
-    that look traffic/usage/quota related. Prints diagnostics so we can
-    see where the crawl failed if it yields nothing."""
-    print("# probing HTML entrypoints:")
-    html_pages: dict[str, str] = {}
-    for entry in HTML_ENTRYPOINTS:
-        url = urljoin(base, entry)
-        status, body = _fetch(session, url)
-        size = len(body) if isinstance(body, str) else 0
-        print(f"    {status:>3}  {size:>7}B  {url}")
-        if status == 200 and size > 0:
-            html_pages[url] = body
-
-    # Expand: any .html hrefs found on those pages, add to the crawl.
-    for src_url, body in list(html_pages.items()):
-        for m in HREF_RE.finditer(body):
-            url = urljoin(src_url, m.group(1))
-            if url in html_pages:
-                continue
-            status, more = _fetch(session, url)
-            if status == 200 and more:
-                html_pages[url] = more
-                print(f"    {status:>3}  {len(more):>7}B  {url}  (from crawl)")
-
-    # Harvest .js srcs across every collected HTML page.
-    js_urls: set[str] = set()
-    for src_url, body in html_pages.items():
-        for m in JS_HREF_RE.finditer(body):
-            js_urls.add(urljoin(src_url, m.group(1)))
-
-    # Blind fallback: many Zyxel UIs load bundle.js / main.js from /js/.
-    if not js_urls:
-        print("# no <script src=...> matches; trying blind guesses:")
-        for d in JS_DIR_GUESSES:
-            for fname in ("bundle.js", "main.js", "app.js", "home.js"):
-                url = urljoin(base, d + fname)
-                status, body = _fetch(session, url)
-                print(f"    {status:>3}  {len(body):>7}B  {url}")
-                if status == 200 and body:
-                    js_urls.add(url)
-
-    print(f"# discovered {len(js_urls)} JS file(s)")
-    interesting: set[str] = set()
-    for js in sorted(js_urls):
-        # Skip anything not served by the router itself — we don't want
-        # to run our regex against jQuery on a CDN.
-        if not js.startswith(base):
-            print(f"    {js}: skipped (offsite)")
-            continue
-        status, body = _fetch(session, js)
-        if status != 200:
-            continue
-        hits = {m.group(1) for m in ACTION_NAME_RE.finditer(body)}
-        matches = {n for n in hits if INTERESTING_RE.search(n)}
-        print(f"    {js}: {len(hits)} get_*/set_* names, "
-              f"{len(matches)} interesting")
-        for n in matches:
-            interesting.add(n)
-        # Print context around any known DOM id / variable name so we
-        # can see how the value is loaded even if the action name isn't
-        # in this file.
-        for dom_id in KNOWN_DOM_IDS:
-            for m in re.finditer(r'\b' + re.escape(dom_id) + r'\b', body):
-                start = max(0, m.start() - 250)
-                end = min(len(body), m.end() + 250)
-                print(f"    -- context in {js} around {dom_id!r} --")
-                print("    " + body[start:end].replace("\n", "\n    "))
-                print()
-    return interesting
+def _dump(label: str, obj: dict) -> None:
+    print(f"# {label}")
+    print(json.dumps(obj, indent=2, sort_keys=True))
+    print()
 
 
 def main() -> int:
@@ -147,30 +41,41 @@ def main() -> int:
     client.login()
     print(f"# logged in to {host}\n")
 
-    # Step 1: scrape the router's own JS for candidate action names.
-    base = f"https://{host}/"
-    print("# harvesting action names from router JS bundle...")
-    harvested = _harvest_js_actions(client.session, base)
-    print(f"# harvested {len(harvested)} candidate action(s): "
-          f"{sorted(harvested)}\n")
+    # 1. threshold — tells us billing cycle + quota.
+    threshold_body = client._raw_post(
+        {"action": "get_wwan_pkt_threshold", "args": {}}
+    )
+    _dump("get_wwan_pkt_threshold", threshold_body)
 
-    # Step 2: try each one. Print full response on errno=0 so we can see
-    # the response shape.
-    for action in sorted(harvested):
-        try:
-            body = client._raw_post({"action": action, "args": {}})
-        except Exception as e:
-            print(f"[{action}] TRANSPORT ERROR: {e}")
-            continue
-        result = body.get(action, body)
-        errno = result.get("errno") if isinstance(result, dict) else None
-        if errno == 0 or errno is None:
-            print(f"[{action}] OK errno={errno}")
-            print(json.dumps(body, indent=2, sort_keys=True))
-            print()
-        else:
-            errmsg = result.get("errmsg") if isinstance(result, dict) else None
-            print(f"[{action}] errno={errno} errmsg={errmsg!r}")
+    # 2. try get_wwan_total_network_stats *without* args first — the RPC
+    # may already default to the current cycle. If it errors, retry with
+    # the dates the threshold call returned.
+    stats_body = client._raw_post(
+        {"action": "get_wwan_total_network_stats", "args": {}}
+    )
+    _dump("get_wwan_total_network_stats (no args)", stats_body)
+
+    threshold = threshold_body.get("get_wwan_pkt_threshold", {})
+    cycle = threshold.get("usage_cycle", {}) or {}
+    start_date = cycle.get("start_date")
+    end_date = cycle.get("end_date")
+    if start_date and end_date:
+        stats_body2 = client._raw_post({
+            "action": "get_wwan_total_network_stats",
+            "args": {"start_date": start_date, "end_date": end_date},
+        })
+        _dump(
+            f"get_wwan_total_network_stats (start={start_date!r}, "
+            f"end={end_date!r})",
+            stats_body2,
+        )
+
+    # 3. data-limit config — 0/1 whether the cap is actually enforced.
+    config_body = client._raw_post(
+        {"action": "get_data_limit_config", "args": {}}
+    )
+    _dump("get_data_limit_config", config_body)
+
     return 0
 
 
