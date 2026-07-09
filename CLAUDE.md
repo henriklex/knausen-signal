@@ -1,3 +1,5 @@
-# One command at a time
+# Terminal handoffs — no conditional branching
 
-When walking the user through terminal work: give **one** command, wait for the output, then give the next. Do not preload a numbered list, do not include conditional branches ("if X then run Y, else run Z"), do not describe what to check for. The user will paste output; you react to it. This applies to every debugging or deploy session unless the user explicitly asks for a batch.
+When walking the user through terminal work, do not include if-this-then-that instructions ("if X returns empty, run Y; else run Z", "should show ~N; if not, try..."). No numbered lists with alternate paths. No pre-emptive troubleshooting for output you haven't seen. The user pastes output; you react.
+
+Chains of commands are fine when the outcome is deterministic and there's nothing to branch on — e.g. `git pull && sudo systemctl restart foo && sudo bash /path/install.sh`. Bundle those in a single block. The rule is about **branching**, not step count.
