@@ -27,10 +27,14 @@ from knausen_signal.modem import ZyxelLTE7460Client  # noqa: E402
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# We look for anything the router's own JS calls that mentions traffic /
-# usage / quota / bandwidth. Grep across all bundled JS.
-ACTION_NAME_RE = re.compile(r'action\s*[:=]\s*["\']([a-z_][a-z0-9_]+)["\']', re.I)
-INTERESTING_RE = re.compile(r'traffic|usage|quota|volume|bandwidth|byte', re.I)
+# All Zyxel RPC actions we've seen follow get_* / set_* — grep for any
+# such identifier so we don't depend on the JS's exact call shape.
+ACTION_NAME_RE = re.compile(r'\b((?:get|set)_[a-z][a-z0-9_]{3,})\b')
+INTERESTING_RE = re.compile(r'traffic|usage|quota|volume|bandwidth|byte|internet_content', re.I)
+# The home page shows the number; DOM id was `home_internet_traffic_total`.
+# Whichever JS writes to that id also names the action. Print surrounding
+# context wherever we find it.
+KNOWN_DOM_IDS = ["home_internet_traffic_total", "home_internet_quota"]
 JS_HREF_RE = re.compile(r'src\s*=\s*["\']([^"\']+\.js[^"\']*)["\']', re.I)
 HREF_RE = re.compile(r'href\s*=\s*["\']([^"\']+\.html?[^"\']*)["\']', re.I)
 # Screenshot showed URL like /router/router_operating_mode.html — pages live
@@ -99,15 +103,29 @@ def _harvest_js_actions(session: requests.Session, base: str) -> set[str]:
     print(f"# discovered {len(js_urls)} JS file(s)")
     interesting: set[str] = set()
     for js in sorted(js_urls):
+        # Skip anything not served by the router itself — we don't want
+        # to run our regex against jQuery on a CDN.
+        if not js.startswith(base):
+            print(f"    {js}: skipped (offsite)")
+            continue
         status, body = _fetch(session, js)
         if status != 200:
             continue
-        hits = [m.group(1) for m in ACTION_NAME_RE.finditer(body)]
-        matches = [n for n in hits if INTERESTING_RE.search(n)]
-        print(f"    {js}: {len(hits)} action mentions, "
+        hits = {m.group(1) for m in ACTION_NAME_RE.finditer(body)}
+        matches = {n for n in hits if INTERESTING_RE.search(n)}
+        print(f"    {js}: {len(hits)} get_*/set_* names, "
               f"{len(matches)} interesting")
         for n in matches:
             interesting.add(n)
+        # Print context around any known DOM id so we can see how the
+        # value is loaded even if the action name isn't in this file.
+        for dom_id in KNOWN_DOM_IDS:
+            for m in re.finditer(re.escape(dom_id), body):
+                start = max(0, m.start() - 200)
+                end = min(len(body), m.end() + 200)
+                print(f"    -- context in {js} around {dom_id!r} --")
+                print("    " + body[start:end].replace("\n", "\n    "))
+                print()
     return interesting
 
 
