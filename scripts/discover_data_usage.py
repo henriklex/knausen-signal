@@ -47,34 +47,37 @@ def main() -> int:
     )
     _dump("get_wwan_pkt_threshold", threshold_body)
 
-    # 2. try get_wwan_total_network_stats *without* args first — the RPC
-    # may already default to the current cycle. If it errors, retry with
-    # the dates the threshold call returned.
-    stats_body = client._raw_post(
-        {"action": "get_wwan_total_network_stats", "args": {}}
-    )
-    _dump("get_wwan_total_network_stats (no args)", stats_body)
-
+    # 2. get_wwan_total_network_stats — the JS always passes dates, and
+    # calling with empty args returns non-JSON, so use the dates the
+    # threshold call gave us.
     threshold = threshold_body.get("get_wwan_pkt_threshold", {})
     cycle = threshold.get("usage_cycle", {}) or {}
     start_date = cycle.get("start_date")
     end_date = cycle.get("end_date")
     if start_date and end_date:
-        stats_body2 = client._raw_post({
-            "action": "get_wwan_total_network_stats",
-            "args": {"start_date": start_date, "end_date": end_date},
-        })
-        _dump(
-            f"get_wwan_total_network_stats (start={start_date!r}, "
-            f"end={end_date!r})",
-            stats_body2,
-        )
+        try:
+            stats_body = client._raw_post({
+                "action": "get_wwan_total_network_stats",
+                "args": {"start_date": start_date, "end_date": end_date},
+            })
+            _dump(
+                f"get_wwan_total_network_stats "
+                f"(start={start_date!r}, end={end_date!r})",
+                stats_body,
+            )
+        except Exception as e:
+            print(f"# get_wwan_total_network_stats failed: {e}\n")
+    else:
+        print("# skipping stats call: threshold gave no usage_cycle\n")
 
     # 3. data-limit config — 0/1 whether the cap is actually enforced.
-    config_body = client._raw_post(
-        {"action": "get_data_limit_config", "args": {}}
-    )
-    _dump("get_data_limit_config", config_body)
+    try:
+        config_body = client._raw_post(
+            {"action": "get_data_limit_config", "args": {}}
+        )
+        _dump("get_data_limit_config", config_body)
+    except Exception as e:
+        print(f"# get_data_limit_config failed: {e}\n")
 
     return 0
 
