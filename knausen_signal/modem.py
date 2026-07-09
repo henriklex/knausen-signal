@@ -1,60 +1,66 @@
-"""Client for the Zyxel LTE7460 4G/LTE router web API.
+"""Client for the Zyxel LTE7460 4G/LTE router.
 
-The router exposes a single JSON-RPC-style endpoint at /cgi-bin/gui.cgi.
-Login establishes a CGISID cookie that subsequent requests reuse. Sessions
-expire after ~180 s of idleness; the client transparently re-logs-in.
+Talks to the router's JSON-RPC layer directly via SSH → `JsonClient`
+against the local Unix socket `/dev/shm/cgi-2-sys`. This is the same
+protocol the router's own web UI uses, but bypasses the httpd — no
+login flow, no session state, no lockout after failed passwords, no
+risk of wedging the web daemon under load.
 
-Three failed login attempts trigger a lockout — the response carries
-errno=6 with a seconds-remaining value. The client raises ZyxelLockoutError
-in that case so the caller can back off for the indicated duration instead
-of hammering the device into a longer lockout.
+One-time router setup (see README): place the collector's pubkey in
+`/data/user/ssh/authorized_keys` on the router. `sshd_config` on this
+firmware already has PubkeyAuthentication yes and PermitRootLogin
+without-password, so no config changes are needed there.
 
-Verified-live (2026-06) firmware: V1.00(ABFR.4)C0
+Runtime: one `ssh` subprocess per RPC. SSH options set a hard timeout
+so a wedged sshd can't block the poll loop. `JsonClient` prints a
+plaintext frame like:
+
+    send:
+    { "action": "..." }
+    read:
+    { "<action>": { ... } }
+
+We split on `read:` and parse the JSON body.
+
+Verified-live (2026-07) firmware: V1.00(ABFR.4)C0
 """
 
 from __future__ import annotations
 
+import json
 import logging
-import random
-import urllib3
+import shlex
+import subprocess
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
-import requests
-
 log = logging.getLogger(__name__)
 
-# Router uses a self-signed cert on a LAN IP. There is no CA path that could
-# validate it, and the IP is fixed by the LAN. Suppress the warning.
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-DEFAULT_TIMEOUT = 10.0
+DEFAULT_TIMEOUT = 15.0
+SOCKET_PATH = "/dev/shm/cgi-2-sys"
 
 
 class ZyxelError(Exception):
-    """Base for all router-client errors."""
+    """Base for router-client errors."""
 
 
-class ZyxelAuthError(ZyxelError):
-    """Login was rejected (wrong credentials, malformed request, etc.)."""
-
-
-class ZyxelLockoutError(ZyxelAuthError):
-    """Three failed logins triggered the router's cool-down."""
-
-    def __init__(self, seconds_remaining: int):
-        super().__init__(f"Locked out for {seconds_remaining} more seconds")
-        self.seconds_remaining = seconds_remaining
+class ZyxelTransportError(ZyxelError):
+    """SSH or subprocess failure — network down, key rejected, timeout, malformed reply."""
 
 
 class ZyxelResponseError(ZyxelError):
-    """Router replied but with errno != 0 on a data call."""
+    """Router replied with errno != 0 on a data call."""
 
     def __init__(self, action: str, errno: int, errmsg: str):
         super().__init__(f"{action}: errno={errno} errmsg={errmsg!r}")
         self.action = action
         self.errno = errno
         self.errmsg = errmsg
+
+
+# (action, args) -> body[action]. Injectable for tests; production is _ssh_transport.
+Transport = Callable[[str, "dict[str, Any]"], "dict[str, Any]"]
 
 
 @dataclass(frozen=True)
@@ -80,10 +86,10 @@ class ModemSample:
     ipv4_address: str | None
     ipv4_connection_time: str | None
     ipv6_address: str | None
-    # Monthly data usage for the current billing cycle, in bytes. Two
-    # RPCs behind the home page's "Data Usage: N GB" widget; None when
-    # the router refused those calls (they're a bonus signal — a failure
-    # here must not drop the primary modem sample).
+    # Monthly data usage for the current billing cycle, in bytes. Two RPCs
+    # behind the home page's "Data Usage: N GB" widget; None when the router
+    # refused those calls (they're a bonus signal — a failure here must not
+    # drop the primary modem sample).
     data_usage_tx_bytes: int | None = None
     data_usage_rx_bytes: int | None = None
 
@@ -95,60 +101,22 @@ class ZyxelLTE7460Client:
     def __init__(
         self,
         host: str,
-        username: str,
-        password: str,
+        ssh_key_path: str,
         *,
+        ssh_user: str = "admin",
         timeout: float = DEFAULT_TIMEOUT,
+        transport: Transport | None = None,
     ):
         self.host = host
-        self.username = username
-        self.password = password
+        self.ssh_key_path = ssh_key_path
+        self.ssh_user = ssh_user
         self.timeout = timeout
-        self.session = requests.Session()
-        self.session.verify = False
-        self._logged_in = False
-
-    @property
-    def base_url(self) -> str:
-        return f"https://{self.host}/cgi-bin/gui.cgi"
-
-    def login(self) -> None:
-        body = self._raw_post(
-            {"action": "set_system_user_login",
-             "args": {"name": self.username, "password": self.password}}
-        )
-        result = body.get("set_system_user_login", {})
-        errno = result.get("errno")
-        if errno == 0:
-            self._logged_in = True
-            log.info("logged in to %s", self.host)
-            return
-        if errno == 6:
-            # errmsg holds seconds-remaining as a string per the device JS
-            try:
-                seconds = int(result.get("errmsg", "0"))
-            except (TypeError, ValueError):
-                seconds = 60
-            raise ZyxelLockoutError(seconds)
-        raise ZyxelAuthError(
-            f"login failed: errno={errno} errmsg={result.get('errmsg')!r}"
-        )
+        self._transport: Transport = transport or self._ssh_transport
 
     def poll(self) -> ModemSample:
-        """Fetch the WWAN status + monthly data usage, re-logging-in once
-        if the session died. Usage is best-effort — a failure there does
+        """Fetch modem status + best-effort data usage. Usage failure does
         not drop the primary modem sample."""
-        if not self._logged_in:
-            self.login()
-        try:
-            body = self._call("get_wwan_network_internet_status", {})
-        except ZyxelResponseError as e:
-            # errno != 0 on a data call most likely means the session expired.
-            # Re-login once and retry; if that also fails, let it propagate.
-            log.info("data call returned errno=%s, re-logging-in", e.errno)
-            self._logged_in = False
-            self.login()
-            body = self._call("get_wwan_network_internet_status", {})
+        body = self._transport("get_wwan_network_internet_status", {})
         tx_bytes, rx_bytes = self._fetch_data_usage()
         return self._parse_status(body, tx_bytes=tx_bytes, rx_bytes=rx_bytes)
 
@@ -156,28 +124,25 @@ class ZyxelLTE7460Client:
         """Two-step fetch mirroring the home-page flow:
 
             1. get_wwan_pkt_threshold  -> {usage_cycle: {start_date, end_date}, ...}
-            2. get_wwan_total_network_stats  (with those dates) -> {tx, rx}
+            2. get_wwan_total_network_stats  (with those dates) -> {tx, rx}   (KiB)
 
-        Returns (tx_bytes, rx_bytes). Any failure returns (None, None);
-        we don't want a flaky usage endpoint to drop the primary modem
-        sample the caller cares about.
+        Any failure returns (None, None) — a flaky usage endpoint must not
+        drop the primary modem sample.
         """
         try:
-            threshold = self._call("get_wwan_pkt_threshold", {})
+            threshold = self._transport("get_wwan_pkt_threshold", {})
             cycle = threshold.get("usage_cycle") or {}
             start_date = cycle.get("start_date")
             end_date = cycle.get("end_date")
             if not start_date or not end_date:
-                log.info("data-usage: threshold response missing usage_cycle")
+                log.info("data-usage: threshold missing usage_cycle")
                 return None, None
-            stats = self._call(
+            stats = self._transport(
                 "get_wwan_total_network_stats",
                 {"start_date": start_date, "end_date": end_date},
             )
-            # The router returns tx/rx in KiB, not bytes: divided by 1024 our
-            # values matched the home-page "GB" figure exactly (116.97 GB shown
-            # vs 0.114 GB computed from raw / 1024^3). Multiply by 1024 here so
-            # the `_bytes` metric name stays truthful.
+            # Router reports tx/rx in KiB; multiply by 1024 to store true bytes
+            # so the `_bytes` metric name stays truthful.
             tx = _int_or_none(stats.get("tx"))
             rx = _int_or_none(stats.get("rx"))
             return (
@@ -188,28 +153,44 @@ class ZyxelLTE7460Client:
             log.exception("data-usage: fetch failed; leaving None")
             return None, None
 
-    def _call(self, action: str, args: dict[str, Any]) -> dict[str, Any]:
-        body = self._raw_post({"action": action, "args": args})
-        result = body.get(action, {})
-        errno = result.get("errno")
-        if errno not in (0, None):
-            raise ZyxelResponseError(action, errno, result.get("errmsg", ""))
-        return result
+    def _ssh_transport(self, action: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Invoke JsonClient on the router via SSH, parse the reply,
+        return body[action] or raise ZyxelTransportError/ZyxelResponseError."""
+        remote_cmd = f"JsonClient {SOCKET_PATH} {action}"
+        if args:
+            remote_cmd += " " + shlex.quote(json.dumps(args))
+        ssh_argv = [
+            "ssh",
+            "-i", self.ssh_key_path,
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", f"ConnectTimeout={int(self.timeout)}",
+            "-o", "ServerAliveInterval=5",
+            "-o", "ServerAliveCountMax=2",
+            "-o", "BatchMode=yes",                # never prompt for password
+            f"{self.ssh_user}@{self.host}",
+            remote_cmd,
+        ]
+        try:
+            proc = subprocess.run(
+                ssh_argv,
+                capture_output=True, text=True, timeout=self.timeout,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise ZyxelTransportError(
+                f"ssh timed out after {self.timeout}s"
+            ) from e
+        except OSError as e:
+            raise ZyxelTransportError(f"could not invoke ssh: {e}") from e
+        if proc.returncode != 0:
+            raise ZyxelTransportError(
+                f"ssh exit={proc.returncode} stderr={proc.stderr.strip()!r}"
+            )
 
-    def _raw_post(self, payload: dict[str, Any]) -> dict[str, Any]:
-        # The cache-buster matches what the router JS does; harmless if dropped.
-        url = f"{self.base_url}?_={random.random()}"
-        resp = self.session.post(
-            url,
-            json=payload,
-            timeout=self.timeout,
-            headers={"Content-Type": "json"},  # matches the device JS exactly
-        )
-        if resp.status_code in (401, 403):
-            self._logged_in = False
-            raise ZyxelAuthError(f"HTTP {resp.status_code} on {payload.get('action')}")
-        resp.raise_for_status()
-        return resp.json()
+        body = _parse_jsonclient_reply(proc.stdout, action)
+        errno = body.get("errno")
+        if errno not in (0, None):
+            raise ZyxelResponseError(action, errno, body.get("errmsg", ""))
+        return body
 
     @staticmethod
     def _parse_status(
@@ -250,6 +231,28 @@ class ZyxelLTE7460Client:
         )
 
 
+def _parse_jsonclient_reply(stdout: str, action: str) -> dict[str, Any]:
+    """Extract body[action] from JsonClient's `send:\\n{...}\\nread:\\n{...}` frame."""
+    idx = stdout.rfind("read:")
+    if idx < 0:
+        raise ZyxelTransportError(
+            f"JsonClient output lacked 'read:' marker: {stdout!r}"
+        )
+    payload = stdout[idx + len("read:"):].strip()
+    try:
+        outer = json.loads(payload)
+    except json.JSONDecodeError as e:
+        raise ZyxelTransportError(
+            f"JsonClient reply was not valid JSON: {payload!r}"
+        ) from e
+    inner = outer.get(action)
+    if not isinstance(inner, dict):
+        raise ZyxelTransportError(
+            f"reply lacked expected {action!r} object: {outer!r}"
+        )
+    return inner
+
+
 def _int_or_none(v: Any) -> int | None:
     if v is None or v == "":
         return None
@@ -260,14 +263,21 @@ def _int_or_none(v: Any) -> int | None:
 
 
 def _main() -> int:
-    import json
+    import json as _json
     from .config import Config
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     cfg = Config.from_env(require_push=False)
-    client = ZyxelLTE7460Client(cfg.modem.host, cfg.modem.username, cfg.modem.password)
+    client = ZyxelLTE7460Client(
+        cfg.modem.host,
+        cfg.modem.ssh_key_path,
+        ssh_user=cfg.modem.ssh_user,
+    )
     sample = client.poll()
-    print(json.dumps(sample.as_dict(), indent=2, default=str))
+    print(_json.dumps(sample.as_dict(), indent=2, default=str))
     return 0
 
 

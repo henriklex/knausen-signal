@@ -384,7 +384,7 @@ def _fake_config():
     return Config(
         db_path=":memory:",
         log_level="INFO",
-        modem=ModemConfig(host="h", username="u", password="p", interval_sec=900),
+        modem=ModemConfig(host="h", ssh_key_path="/dev/null", ssh_user="admin", interval_sec=900),
         probe=ProbeConfig(
             interval_sec=900,
             ping_targets=["1.1.1.1"],

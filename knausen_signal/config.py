@@ -81,8 +81,8 @@ def _float(name: str, default: float) -> float:
 @dataclass(frozen=True)
 class ModemConfig:
     host: str
-    username: str
-    password: str
+    ssh_key_path: str
+    ssh_user: str
     interval_sec: int
 
 
@@ -129,8 +129,11 @@ class Config:
         """
         modem = ModemConfig(
             host=os.environ.get("KNAUSEN_MODEM_HOST", "192.168.1.1"),
-            username=os.environ.get("KNAUSEN_MODEM_USER", "admin"),
-            password=_required("KNAUSEN_MODEM_PASSWORD"),
+            ssh_key_path=os.environ.get(
+                "KNAUSEN_MODEM_SSH_KEY",
+                "/home/knausen/.ssh/id_ed25519_router",
+            ),
+            ssh_user=os.environ.get("KNAUSEN_MODEM_SSH_USER", "admin"),
             interval_sec=_int("KNAUSEN_MODEM_INTERVAL_SEC", 900),
         )
         probe = ProbeConfig(

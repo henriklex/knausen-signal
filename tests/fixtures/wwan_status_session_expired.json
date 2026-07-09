@@ -1,6 +1,0 @@
-{
-  "get_wwan_network_internet_status": {
-    "errno": 1,
-    "errmsg": "Session expired."
-  }
-}

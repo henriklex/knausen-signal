@@ -33,7 +33,7 @@ from .db import (
     insert_probe_sample,
     open_db,
 )
-from .modem import ZyxelLockoutError, ZyxelLTE7460Client
+from .modem import ZyxelLTE7460Client
 from .mtr import run_mtr
 from .probe import run_probe
 from .push import push_unpushed
@@ -43,7 +43,9 @@ log = logging.getLogger(__name__)
 
 
 async def modem_loop(cfg: Config, conn: sqlite3.Connection) -> None:
-    client = ZyxelLTE7460Client(cfg.modem.host, cfg.modem.username, cfg.modem.password)
+    client = ZyxelLTE7460Client(
+        cfg.modem.host, cfg.modem.ssh_key_path, ssh_user=cfg.modem.ssh_user,
+    )
     while True:
         backoff = 0
         try:
@@ -55,9 +57,6 @@ async def modem_loop(cfg: Config, conn: sqlite3.Connection) -> None:
                 "modem: rsrp=%s rsrq=%s snr=%s rssi=%s",
                 sample.rsrp_dbm, sample.rsrq_db, sample.snr_db, sample.rssi_dbm,
             )
-        except ZyxelLockoutError as e:
-            backoff = e.seconds_remaining + 10
-            log.warning("modem: lockout, sleeping %d s", backoff)
         except Exception:
             backoff = 60
             log.exception("modem: poll failed, sleeping %d s", backoff)

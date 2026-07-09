@@ -27,7 +27,7 @@ def _config(tmp_path, *, mtr_enabled: bool = False, trigger_p95_ms: float = 1e9,
     return Config(
         db_path=str(tmp_path / "data.sqlite"),
         log_level="INFO",
-        modem=ModemConfig(host="r", username="u", password="p", interval_sec=999),
+        modem=ModemConfig(host="r", ssh_key_path="/dev/null", ssh_user="admin", interval_sec=999),
         probe=ProbeConfig(
             interval_sec=999, ping_targets=["1.1.1.1"], checkpoints=[],
         ),
@@ -91,9 +91,9 @@ async def test_supervisor_runs_one_cycle_of_each_loop(tmp_path):
     assert mock_remote_push.called  # heartbeat pushed
 
 
-async def test_supervisor_modem_lockout_does_not_crash(tmp_path):
-    """A lockout should be caught and the loop should keep running."""
-    from knausen_signal.modem import ZyxelLockoutError
+async def test_supervisor_modem_transport_error_does_not_crash(tmp_path):
+    """A transient SSH/router failure should be caught; loop stays up."""
+    from knausen_signal.modem import ZyxelTransportError
     cfg = _config(tmp_path)
     conn = open_db(cfg.db_path)
 
@@ -101,7 +101,7 @@ async def test_supervisor_modem_lockout_does_not_crash(tmp_path):
          patch.object(main_mod, "run_probe", return_value=_probe_sample()), \
          patch.object(main_mod, "remote_push"), \
          patch.object(main_mod, "push_unpushed", return_value=0):
-        MockClient.return_value.poll.side_effect = ZyxelLockoutError(1)
+        MockClient.return_value.poll.side_effect = ZyxelTransportError("ssh timeout")
 
         task = asyncio.create_task(main_mod.supervisor(cfg, conn))
         await asyncio.sleep(0.2)
@@ -111,7 +111,7 @@ async def test_supervisor_modem_lockout_does_not_crash(tmp_path):
         except asyncio.CancelledError:
             pass
 
-    # Modem loop didn't insert (it locked out) but the supervisor stayed up,
+    # Modem loop didn't insert (transport failed) but the supervisor stayed up,
     # so probe rows are present.
     probe_count = conn.execute("SELECT count(*) FROM probe_sample").fetchone()[0]
     assert probe_count >= 1
