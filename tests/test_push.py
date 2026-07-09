@@ -66,13 +66,26 @@ def test_modem_metrics_yields_all_numeric_gauges_plus_derived():
         "knausen_modem_info",
         "knausen_modem_data_usage_tx_bytes", "knausen_modem_data_usage_rx_bytes",
         "knausen_modem_data_usage_total_bytes",
+        # _gb variants exist because vmui custom dashboards can't do
+        # arithmetic inside a panel's PromQL expr.
+        "knausen_modem_data_usage_tx_gb", "knausen_modem_data_usage_rx_gb",
+        "knausen_modem_data_usage_total_gb",
     ):
         assert expected in names, f"missing {expected}"
 
 
 def test_modem_metrics_data_usage_total_is_sum_of_tx_and_rx():
+    tx = MODEM_PAYLOAD["data_usage_tx_bytes"]
+    rx = MODEM_PAYLOAD["data_usage_rx_bytes"]
     assert _find(MODEM_PAYLOAD, "knausen_modem_data_usage_total_bytes") == \
-        pytest.approx(12345678901 + 102400000000)
+        pytest.approx(tx + rx)
+    # _gb variants are just the bytes / 1024^3
+    assert _find(MODEM_PAYLOAD, "knausen_modem_data_usage_total_gb") == \
+        pytest.approx((tx + rx) / (1024 ** 3))
+    assert _find(MODEM_PAYLOAD, "knausen_modem_data_usage_tx_gb") == \
+        pytest.approx(tx / (1024 ** 3))
+    assert _find(MODEM_PAYLOAD, "knausen_modem_data_usage_rx_gb") == \
+        pytest.approx(rx / (1024 ** 3))
 
 
 def test_modem_metrics_data_usage_omitted_when_either_side_is_none():
@@ -80,8 +93,11 @@ def test_modem_metrics_data_usage_omitted_when_either_side_is_none():
     partial = {**MODEM_PAYLOAD, "data_usage_rx_bytes": None}
     names = {name for name, _, _ in _modem_metrics(partial)}
     assert "knausen_modem_data_usage_tx_bytes" in names
+    assert "knausen_modem_data_usage_tx_gb" in names
     assert "knausen_modem_data_usage_rx_bytes" not in names
+    assert "knausen_modem_data_usage_rx_gb" not in names
     assert "knausen_modem_data_usage_total_bytes" not in names
+    assert "knausen_modem_data_usage_total_gb" not in names
 
 
 def test_modem_metrics_carrier_aggregation_flag_flips_with_band_secondary():

@@ -76,14 +76,26 @@ def _modem_metrics(payload: dict[str, Any]) -> Iterable[tuple[str, tuple[Label, 
     # Derived: tx + rx for the current billing cycle, matching the "N GB"
     # number the router's home page shows. Emitted only when both parts
     # are present so we never fabricate a fake total from a partial poll.
+    # Also emit _gb variants because vmui custom dashboards can't do
+    # arithmetic in the panel `expr` — panels reference these directly.
     tx = payload.get("data_usage_tx_bytes")
     rx = payload.get("data_usage_rx_bytes")
-    if tx is not None and rx is not None:
+    if tx is not None:
         yield (
-            f"{METRIC_PREFIX}_modem_data_usage_total_bytes",
+            f"{METRIC_PREFIX}_modem_data_usage_tx_gb",
             (),
-            float(tx) + float(rx),
+            float(tx) / (1024 ** 3),
         )
+    if rx is not None:
+        yield (
+            f"{METRIC_PREFIX}_modem_data_usage_rx_gb",
+            (),
+            float(rx) / (1024 ** 3),
+        )
+    if tx is not None and rx is not None:
+        total = float(tx) + float(rx)
+        yield f"{METRIC_PREFIX}_modem_data_usage_total_bytes", (), total
+        yield f"{METRIC_PREFIX}_modem_data_usage_total_gb", (), total / (1024 ** 3)
 
     # info series — low-cardinality string context as a constant=1 gauge.
     info_labels = tuple(

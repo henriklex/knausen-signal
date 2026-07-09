@@ -30,9 +30,7 @@
         {
           "title": "Total (GB) — matches the router home page's Data Usage figure",
           "width": 6,
-          "expr": [
-            "knausen_modem_data_usage_total_bytes / 1024 / 1024 / 1024"
-          ],
+          "expr": ["knausen_modem_data_usage_total_gb"],
           "alias": ["total_gb"],
           "showLegend": false
         },
@@ -40,8 +38,8 @@
           "title": "Sent vs received (GB)",
           "width": 6,
           "expr": [
-            "knausen_modem_data_usage_tx_bytes / 1024 / 1024 / 1024",
-            "knausen_modem_data_usage_rx_bytes / 1024 / 1024 / 1024"
+            "knausen_modem_data_usage_tx_gb",
+            "knausen_modem_data_usage_rx_gb"
           ],
           "alias": ["tx_gb", "rx_gb"],
           "showLegend": true
