@@ -28,20 +28,14 @@
       "title": "Data usage — current billing cycle",
       "panels": [
         {
-          "title": "Total (GB) — matches the router home page's Data Usage figure",
-          "width": 6,
-          "expr": ["knausen_modem_data_usage_total_gb"],
-          "alias": ["total_gb"],
-          "showLegend": false
-        },
-        {
-          "title": "Sent vs received (GB)",
-          "width": 6,
+          "title": "Data usage (GB) — total, sent, received; total matches router home page",
+          "width": 12,
           "expr": [
+            "knausen_modem_data_usage_total_gb",
             "knausen_modem_data_usage_tx_gb",
             "knausen_modem_data_usage_rx_gb"
           ],
-          "alias": ["tx_gb", "rx_gb"],
+          "alias": ["total_gb", "tx_gb", "rx_gb"],
           "showLegend": true
         }
       ]
