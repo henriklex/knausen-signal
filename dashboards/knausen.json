@@ -8,19 +8,22 @@
           "title": "Probe OK (1 = last cycle succeeded)",
           "width": 4,
           "expr": ["knausen_probe_ok", "vector(0)", "vector(1)"],
-          "alias": ["probe_ok", "0", "1"]
+          "alias": ["probe_ok", "0", "1"],
+          "showLegend": false
         },
         {
           "title": "Modem connected (1 = LTE attach)",
           "width": 4,
           "expr": ["knausen_modem_connected", "vector(0)", "vector(1)"],
-          "alias": ["connected", "0", "1"]
+          "alias": ["connected", "0", "1"],
+          "showLegend": false
         },
         {
           "title": "Collector heartbeat (1 = alive)",
           "width": 4,
           "expr": ["knausen_collector_heartbeat", "vector(0)", "vector(1)"],
-          "alias": ["heartbeat", "0", "1"]
+          "alias": ["heartbeat", "0", "1"],
+          "showLegend": false
         }
       ]
     },
@@ -36,7 +39,7 @@
             "knausen_modem_data_usage_rx_gb"
           ],
           "alias": ["total_gb", "tx_gb", "rx_gb"],
-          "showLegend": true
+          "showLegend": false
         }
       ]
     },
@@ -61,13 +64,13 @@
           "title": "Checkpoint RTT p50 by segment — gateway → carrier_edge → peering → destination",
           "width": 12,
           "expr": ["knausen_probe_checkpoint_rtt_ms_p50"],
-          "showLegend": true
+          "showLegend": false
         },
         {
           "title": "Checkpoint RTT p95 by segment (tail per hop)",
           "width": 12,
           "expr": ["knausen_probe_checkpoint_rtt_ms_p95"],
-          "showLegend": true
+          "showLegend": false
         }
       ]
     },
@@ -118,7 +121,7 @@
           "title": "All hops — worst-case RTT (latest snapshot tells you which hop owns the tail)",
           "width": 12,
           "expr": ["knausen_mtr_hop_rtt_ms_worst"],
-          "showLegend": true
+          "showLegend": false
         }
       ]
     },
