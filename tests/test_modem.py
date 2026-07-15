@@ -153,6 +153,35 @@ def test_poll_data_usage_none_when_threshold_lacks_cycle(fixture):
     assert sample.data_usage_rx_bytes is None
 
 
+def test_poll_captures_lte_shape_once_per_keyset(fixture, caplog):
+    """The diagnostic hook logs the raw lte object once per distinct keyset
+    and dedups repeats — and never disturbs the returned sample."""
+    import logging as _logging
+
+    transport = _build_transport(fixture)
+    client = make_client(transport=transport)
+    with caplog.at_level(_logging.INFO, logger="knausen_signal.modem"):
+        sample = client.poll()
+        client.poll()  # identical shape -> must NOT log again
+
+    captures = [r for r in caplog.records if "RAW LTE SHAPE CAPTURE" in r.getMessage()]
+    assert len(captures) == 1
+    # the real secondary-carrier key made it into the captured payload
+    assert "band_1" in captures[0].getMessage()
+    # sample itself is unaffected by the hook
+    assert sample.rsrp_dbm == -61
+    assert sample.band_secondary == "E_UTRA_3"
+
+
+def test_capture_hook_never_raises_on_missing_or_odd_lte():
+    """A malformed/absent lte block must not raise out of the hook."""
+    client = make_client()
+    client._maybe_capture_lte_shape({})                 # no lte
+    client._maybe_capture_lte_shape({"lte": None})      # lte not a dict
+    client._maybe_capture_lte_shape({"lte": "nope"})    # lte wrong type
+    # no exception == pass
+
+
 def test_status_transport_errors_propagate(fixture):
     def transport(action, args):
         raise ZyxelTransportError("ssh timeout")

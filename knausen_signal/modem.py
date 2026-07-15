@@ -112,13 +112,49 @@ class ZyxelLTE7460Client:
         self.ssh_user = ssh_user
         self.timeout = timeout
         self._transport: Transport = transport or self._ssh_transport
+        # --- Diagnostic hook (TEMPORARY, safe to remove) ------------------
+        # Remembers which raw `lte` key-sets we've already logged, so
+        # _maybe_capture_lte_shape emits the full raw object once per distinct
+        # shape instead of on every poll. See that method for the why.
+        self._logged_lte_keysets: set[frozenset[str]] = set()
 
     def poll(self) -> ModemSample:
         """Fetch modem status + best-effort data usage. Usage failure does
         not drop the primary modem sample."""
         body = self._transport("get_wwan_network_internet_status", {})
+        self._maybe_capture_lte_shape(body)
         tx_bytes, rx_bytes = self._fetch_data_usage()
         return self._parse_status(body, tx_bytes=tx_bytes, rx_bytes=rx_bytes)
+
+    def _maybe_capture_lte_shape(self, body: dict[str, Any]) -> None:
+        """Diagnostic (TEMPORARY — safe to delete): log the full raw `lte`
+        object once per distinct key-set.
+
+        Why: we parse only the first secondary carrier (band_1/chnel_1), but
+        this modem reports 3+ aggregated carriers whose exact firmware keys
+        (band_2/chnel_2, ...) we haven't confirmed. Emitting one sample per
+        new shape lets production capture a real 3CA event so the N-carrier
+        parser can be built against ground truth instead of a guess.
+
+        Purely observational: it only reads `body`, mutates nothing the
+        returned sample depends on, and swallows every error — so a bug here
+        can never affect a poll or drop a sample.
+        """
+        try:
+            lte = body.get("lte")
+            if not isinstance(lte, dict):
+                return
+            keyset = frozenset(lte.keys())
+            if keyset in self._logged_lte_keysets:
+                return
+            self._logged_lte_keysets.add(keyset)
+            log.info(
+                "modem: RAW LTE SHAPE CAPTURE (new keyset, %d keys): %s",
+                len(keyset),
+                json.dumps(lte, default=str, sort_keys=True),
+            )
+        except Exception:
+            log.debug("modem: lte shape capture failed", exc_info=True)
 
     def _fetch_data_usage(self) -> tuple[int | None, int | None]:
         """Two-step fetch mirroring the home-page flow:
