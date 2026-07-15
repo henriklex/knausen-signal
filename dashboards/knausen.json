@@ -150,6 +150,32 @@
           "showLegend": false
         }
       ]
+    },
+    {
+      "title": "LTE radio — network & band",
+      "panels": [
+        {
+          "title": "EARFCN — primary & secondary carrier (a second line appearing = carrier aggregation active)",
+          "width": 12,
+          "expr": [
+            "knausen_modem_earfcn_primary",
+            "knausen_modem_earfcn_secondary"
+          ],
+          "alias": ["earfcn_primary", "earfcn_secondary"],
+          "showLegend": false
+        },
+        {
+          "title": "Carrier aggregation (1 = 2+ carriers active; Y pinned 0..1)",
+          "width": 12,
+          "expr": [
+            "knausen_modem_carrier_aggregation",
+            "vector(0)",
+            "vector(1)"
+          ],
+          "alias": ["carrier_aggregation", "0", "1"],
+          "showLegend": false
+        }
+      ]
     }
   ]
 }
