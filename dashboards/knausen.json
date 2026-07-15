@@ -155,13 +155,20 @@
       "title": "LTE radio — network & band",
       "panels": [
         {
-          "title": "EARFCN — primary & secondary carrier (a second line appearing = carrier aggregation active)",
+          "title": "Band / network attachment — read the legend: operator, type, band_primary, band_secondary",
+          "width": 12,
+          "expr": ["knausen_modem_info"],
+          "showLegend": true
+        },
+        {
+          "title": "EARFCN — primary & secondary carrier, Y pinned from 0 (second line = carrier aggregation)",
           "width": 12,
           "expr": [
             "knausen_modem_earfcn_primary",
-            "knausen_modem_earfcn_secondary"
+            "knausen_modem_earfcn_secondary",
+            "vector(0)"
           ],
-          "alias": ["earfcn_primary", "earfcn_secondary"],
+          "alias": ["earfcn_primary", "earfcn_secondary", "0"],
           "showLegend": false
         },
         {
