@@ -127,7 +127,18 @@ def test_modem_info_labels_carry_string_context():
         "network_type": "LTE+",
         "band_primary": "E_UTRA_20",
         "band_secondary": "E_UTRA_3",
+        "band_primary_name": "800 DD",
+        "band_secondary_name": "1800+",
     }
+
+
+def test_band_name_maps_known_and_passes_through_unknown():
+    from knausen_signal.push import _band_name
+    assert _band_name("E_UTRA_3") == "1800+"
+    assert _band_name("E_UTRA_20") == "800 DD"
+    assert _band_name("E_UTRA_7") == "E_UTRA_7"   # unmapped -> raw, never hidden
+    assert _band_name(None) == ""
+    assert _band_name("") == ""
 
 
 # ---------- _probe_metrics ----------

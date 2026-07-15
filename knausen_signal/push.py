@@ -53,6 +53,23 @@ _MODEM_NUMERIC: tuple[tuple[str, str], ...] = (
 )
 
 
+# Human-facing band names (the carrier's / user's terminology) for the 3GPP
+# E-UTRA band strings the modem reports. EXTEND THIS as new bands appear;
+# anything unmapped falls through to its raw E_UTRA_* string so a band is
+# never hidden.
+BAND_NAMES: dict[str, str] = {
+    "E_UTRA_3": "1800+",
+    "E_UTRA_20": "800 DD",
+}
+
+
+def _band_name(raw: str | None) -> str:
+    """Map a raw E_UTRA_* band string to its human name, or pass it through."""
+    if not raw:
+        return ""
+    return BAND_NAMES.get(raw, raw)
+
+
 def _modem_metrics(payload: dict[str, Any]) -> Iterable[tuple[str, tuple[Label, ...], float]]:
     """Yield (metric_name, labels_extra, value) for one modem sample.
 
@@ -98,9 +115,17 @@ def _modem_metrics(payload: dict[str, Any]) -> Iterable[tuple[str, tuple[Label, 
         yield f"{METRIC_PREFIX}_modem_data_usage_total_gb", (), total / (1024 ** 3)
 
     # info series — low-cardinality string context as a constant=1 gauge.
-    info_labels = tuple(
-        Label(k, str(payload.get(k) or ""))
-        for k in ("operator", "network_type", "band_primary", "band_secondary")
+    # band_*_name carry the human band names (see BAND_NAMES); the raw
+    # band_* codes are kept alongside so nothing is lost.
+    bp = payload.get("band_primary")
+    bs = payload.get("band_secondary")
+    info_labels = (
+        Label("operator", str(payload.get("operator") or "")),
+        Label("network_type", str(payload.get("network_type") or "")),
+        Label("band_primary", str(bp or "")),
+        Label("band_secondary", str(bs or "")),
+        Label("band_primary_name", _band_name(bp)),
+        Label("band_secondary_name", _band_name(bs)),
     )
     yield f"{METRIC_PREFIX}_modem_info", info_labels, 1.0
 
