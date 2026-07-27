@@ -93,7 +93,7 @@
           "title": "DNS lookup by resolver clients actually use, ms (v4 = Cloudflare/Google, v6 = ice; source=handed is what the router gives clients, reference is a fixed anchor)",
           "width": 12,
           "expr": ["knausen_probe_dns_lookup_ms"],
-          "showLegend": true
+          "showLegend": false
         }
       ]
     },
