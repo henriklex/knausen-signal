@@ -44,9 +44,17 @@ MODEM_PAYLOAD = {
 
 PROBE_PAYLOAD = {
     "ping_rtt_ms_p50": 55.5, "ping_rtt_ms_p95": 108.3, "ping_loss_pct": 0.0,
-    "dns_lookup_ms": 168.0, "tcp_connect_ms": 51.4,
+    "tcp_connect_ms": 51.4,
     "tls_handshake_ms": 65.7, "https_head_ms": 166.7,
     "probe_ok": True,
+    "dns": [
+        {"resolver": "1.1.1.1", "family": "v4", "source": "handed",
+         "rtt_ms_p50": 48.0, "loss_pct": 0.0},
+        {"resolver": "2a01:798:0:8012::4", "family": "v6", "source": "handed",
+         "rtt_ms_p50": 90.0, "loss_pct": 0.0},
+        {"resolver": "2606:4700:4700::1111", "family": "v6",
+         "source": "reference", "rtt_ms_p50": None, "loss_pct": 100.0},
+    ],
 }
 
 
@@ -202,9 +210,44 @@ def test_probe_metrics_skips_none_checkpoint_values():
 
 def test_probe_metrics_empty_checkpoints_emits_no_checkpoint_series():
     """Backward compat: payloads without checkpoint keys still work."""
-    emitted = list(_probe_metrics(PROBE_PAYLOAD))
+    payload = {k: v for k, v in PROBE_PAYLOAD.items() if k != "dns"}
+    emitted = list(_probe_metrics(payload))
     assert not any(
         name.startswith("knausen_probe_checkpoint_")
+        for name, _, _ in emitted
+    )
+
+
+# ---------- per-resolver DNS projection ----------
+
+def test_probe_metrics_emits_per_resolver_dns_with_labels():
+    emitted = list(_probe_metrics(PROBE_PAYLOAD))
+    dns = [
+        ({l.name: l.value for l in labs}, val)
+        for name, labs, val in emitted
+        if name == "knausen_probe_dns_lookup_ms"
+    ]
+    by_resolver = {lbls["resolver"]: (lbls, val) for lbls, val in dns}
+    # Two resolvers had a p50; the failed reference one is omitted from lookup_ms
+    assert set(by_resolver) == {"1.1.1.1", "2a01:798:0:8012::4"}
+    lbls, val = by_resolver["1.1.1.1"]
+    assert val == pytest.approx(48.0)
+    assert lbls == {"resolver": "1.1.1.1", "family": "v4", "source": "handed"}
+    # loss% is emitted for all three (including the 100%-loss reference)
+    loss = {
+        next(l.value for l in labs if l.name == "resolver"): val
+        for name, labs, val in emitted
+        if name == "knausen_probe_dns_loss_pct"
+    }
+    assert loss["2606:4700:4700::1111"] == pytest.approx(100.0)
+    assert loss["1.1.1.1"] == pytest.approx(0.0)
+
+
+def test_probe_metrics_no_dns_key_emits_no_dns_series():
+    payload = {k: v for k, v in PROBE_PAYLOAD.items() if k != "dns"}
+    emitted = list(_probe_metrics(payload))
+    assert not any(
+        name.startswith("knausen_probe_dns_")
         for name, _, _ in emitted
     )
 

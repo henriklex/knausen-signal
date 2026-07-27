@@ -59,7 +59,7 @@ def _modem_sample():
 def _probe_sample():
     return ProbeSample(
         ping_rtt_ms_p50=50.0, ping_rtt_ms_p95=100.0, ping_loss_pct=0.0,
-        dns_lookup_ms=10.0, tcp_connect_ms=20.0, tls_handshake_ms=30.0,
+        tcp_connect_ms=20.0, tls_handshake_ms=30.0,
         https_head_ms=40.0, probe_ok=True,
     )
 
@@ -123,7 +123,7 @@ def _high_p95_probe_sample():
     """A probe sample whose p95 is well above any sane trigger threshold."""
     return ProbeSample(
         ping_rtt_ms_p50=50.0, ping_rtt_ms_p95=1500.0, ping_loss_pct=0.0,
-        dns_lookup_ms=10.0, tcp_connect_ms=20.0, tls_handshake_ms=30.0,
+        tcp_connect_ms=20.0, tls_handshake_ms=30.0,
         https_head_ms=40.0, probe_ok=True,
     )
 

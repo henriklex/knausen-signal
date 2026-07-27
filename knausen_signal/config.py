@@ -91,6 +91,18 @@ class ProbeConfig:
     interval_sec: int
     ping_targets: list[str]
     checkpoints: list[tuple[str, str]]
+    # DNS measured against the resolvers clients actually use (see probe.py).
+    dns_autodetect: bool = True
+    dns_interface: str = "eth0"
+    dns_reference_servers: list[str] = field(
+        default_factory=lambda: ["1.1.1.1", "2606:4700:4700::1111"]
+    )
+    dns_domains: list[str] = field(
+        default_factory=lambda: [
+            "google.com", "nrk.no", "cloudflare.com", "github.com",
+            "wikipedia.org",
+        ]
+    )
 
 
 @dataclass(frozen=True)
@@ -142,6 +154,16 @@ class Config:
             checkpoints=_kv_csv(
                 "KNAUSEN_PROBE_CHECKPOINTS",
                 [(name, host) for name, host in _probe.DEFAULT_CHECKPOINTS],
+            ),
+            dns_autodetect=_bool("KNAUSEN_DNS_AUTODETECT", True),
+            dns_interface=os.environ.get("KNAUSEN_DNS_INTERFACE", "eth0"),
+            dns_reference_servers=_csv(
+                "KNAUSEN_DNS_REFERENCE_SERVERS",
+                ["1.1.1.1", "2606:4700:4700::1111"],
+            ),
+            dns_domains=_csv(
+                "KNAUSEN_DNS_PROBE_DOMAINS",
+                list(_probe.DEFAULT_DNS_DOMAINS),
             ),
         )
         mtr = MtrConfig(

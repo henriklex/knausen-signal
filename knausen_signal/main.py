@@ -35,11 +35,27 @@ from .db import (
 )
 from .modem import ZyxelLTE7460Client
 from .mtr import run_mtr
-from .probe import run_probe
+from .probe import ProbeSample, assemble_resolvers, run_probe
 from .push import push_unpushed
 from .remote_write import Label, Sample, TimeSeries, push as remote_push
 
 log = logging.getLogger(__name__)
+
+
+def _run_probe_cycle(cfg: Config) -> ProbeSample:
+    """One probe run, incl. re-detecting the DNS resolvers clients are handed.
+    Runs in a worker thread (nmcli + blocking sockets), so keep it sync."""
+    resolvers = assemble_resolvers(
+        autodetect=cfg.probe.dns_autodetect,
+        interface=cfg.probe.dns_interface,
+        reference_servers=cfg.probe.dns_reference_servers,
+    )
+    return run_probe(
+        ping_targets=tuple(cfg.probe.ping_targets),
+        checkpoints=tuple(cfg.probe.checkpoints),
+        dns_resolvers=resolvers,
+        dns_domains=tuple(cfg.probe.dns_domains),
+    )
 
 
 async def modem_loop(cfg: Config, conn: sqlite3.Connection) -> None:
@@ -70,11 +86,7 @@ async def probe_loop(cfg: Config, conn: sqlite3.Connection) -> None:
     last_mtr_ts = 0.0
     while True:
         try:
-            sample = await asyncio.to_thread(
-                run_probe,
-                ping_targets=tuple(cfg.probe.ping_targets),
-                checkpoints=tuple(cfg.probe.checkpoints),
-            )
+            sample = await asyncio.to_thread(_run_probe_cycle, cfg)
             await asyncio.to_thread(
                 insert_probe_sample, conn, time.time(), sample.as_dict()
             )

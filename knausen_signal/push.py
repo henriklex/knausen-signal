@@ -132,11 +132,13 @@ def _modem_metrics(payload: dict[str, Any]) -> Iterable[tuple[str, tuple[Label, 
 
 # ---------- probe metric projection ----------
 
+# DNS is NOT here — it's emitted per-resolver with labels (see _probe_metrics),
+# because the panel must show each resolver clients actually use, not one
+# host-local number.
 _PROBE_NUMERIC: tuple[tuple[str, str], ...] = (
     ("probe_ping_rtt_ms_p50",   "ping_rtt_ms_p50"),
     ("probe_ping_rtt_ms_p95",   "ping_rtt_ms_p95"),
     ("probe_ping_loss_pct",     "ping_loss_pct"),
-    ("probe_dns_lookup_ms",     "dns_lookup_ms"),
     ("probe_tcp_connect_ms",    "tcp_connect_ms"),
     ("probe_tls_handshake_ms",  "tls_handshake_ms"),
     ("probe_https_head_ms",     "https_head_ms"),
@@ -172,6 +174,22 @@ def _probe_metrics(payload: dict[str, Any]) -> Iterable[tuple[str, tuple[Label, 
                 (Label("checkpoint", str(cp_name)),),
                 float(val),
             )
+
+    # Per-resolver DNS. One series per resolver clients are actually handed
+    # (plus the reference anchors), labelled resolver/family/source so the
+    # panel shows each real path. None values produce no series.
+    for d in payload.get("dns") or ():
+        labels = (
+            Label("resolver", str(d.get("resolver", ""))),
+            Label("family", str(d.get("family", ""))),
+            Label("source", str(d.get("source", ""))),
+        )
+        p50 = d.get("rtt_ms_p50")
+        if p50 is not None:
+            yield f"{METRIC_PREFIX}_probe_dns_lookup_ms", labels, float(p50)
+        loss = d.get("loss_pct")
+        if loss is not None:
+            yield f"{METRIC_PREFIX}_probe_dns_loss_pct", labels, float(loss)
 
 
 # ---------- mtr metric projection ----------
